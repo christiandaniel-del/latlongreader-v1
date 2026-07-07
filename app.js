@@ -153,6 +153,12 @@ function pointInPolygon(lat, lng, polygon) {
     return inside;
 }
 
+function triggerUpdateAnimation(el) {
+    el.classList.remove('updated');
+    void el.offsetWidth; // trigger reflow
+    el.classList.add('updated');
+}
+
 // --- STATUS & UI HELPERS ---
 
 /**
@@ -174,10 +180,26 @@ function updateDashboard() {
     const notamCount = storedData.notam.length;
     const vonaCount = storedData.vona ? 1 : 0;
     const tcCount = storedData.tc ? 1 : 0;
-    document.getElementById('dashRoute').textContent = routeCount > 0 ? `${storedData.navtech.coords[0].name || '?'} → ${storedData.navtech.coords[routeCount-1].name || '?'}` : '-';
-    document.getElementById('dashNotamCount').textContent = notamCount;
-    document.getElementById('dashVonaCount').textContent = vonaCount;
-    document.getElementById('dashTcCount').textContent = tcCount;
+    const elements = {
+        dashRoute: document.getElementById('dashRoute'),
+        dashNotamCount: document.getElementById('dashNotamCount'),
+        dashVonaCount: document.getElementById('dashVonaCount'),
+        dashTcCount: document.getElementById('dashTcCount')
+    };
+
+    const newVals = {
+        dashRoute: routeCount > 0 ? `${storedData.navtech.coords[0].name || '?'} → ${storedData.navtech.coords[routeCount-1].name || '?'}` : '-',
+        dashNotamCount: notamCount,
+        dashVonaCount: vonaCount,
+        dashTcCount: tcCount
+    };
+
+    Object.keys(elements).forEach(key => {
+        if (elements[key].textContent !== String(newVals[key])) {
+            elements[key].textContent = newVals[key];
+            triggerUpdateAnimation(elements[key]);
+        }
+    });
 
     let status = 'CLEAR';
     let cls = '';
@@ -1059,21 +1081,28 @@ function fitBoundsAll() {
 
 // --- CLEAR ALL ---
 function clearAll() {
-    Object.values(layers).forEach(l => l.clearLayers());
-    document.querySelectorAll('.card').forEach(c => c.style.display = 'none');
-    document.getElementById('mainInput').value = '';
-    storedData = { navtech: { coords: [], polyline: null, markers: [] }, vona: null, notam: [], tc: null };
-    routeCoords = [];
-    vonaPolygons = [];
-    notamPolygons = [];
-    tcPolygons = [];
-    isRulerActive = false;
-    clearRuler();
-    const rulerBtn = document.getElementById('rulerBtn');
-    if (rulerBtn) rulerBtn.classList.remove('active');
-    map.getContainer().style.cursor = '';
-    updateDashboard();
-    setStatus('All data cleared', '');
+    const sidebar = document.querySelector('.sidebar');
+    sidebar.style.opacity = '0.5';
+    sidebar.style.transition = 'opacity 0.2s';
+    
+    setTimeout(() => {
+        Object.values(layers).forEach(l => l.clearLayers());
+        document.querySelectorAll('.card').forEach(c => c.style.display = 'none');
+        document.getElementById('mainInput').value = '';
+        storedData = { navtech: { coords: [], polyline: null, markers: [] }, vona: null, notam: [], tc: null };
+        routeCoords = [];
+        vonaPolygons = [];
+        notamPolygons = [];
+        tcPolygons = [];
+        isRulerActive = false;
+        clearRuler();
+        const rulerBtn = document.getElementById('rulerBtn');
+        if (rulerBtn) rulerBtn.classList.remove('active');
+        map.getContainer().style.cursor = '';
+        updateDashboard();
+        setStatus('All data cleared', '');
+        sidebar.style.opacity = '1';
+    }, 200);
 }
 
 
@@ -1155,7 +1184,8 @@ function addRulerPoint(latlng) {
         L.polyline([prev, latlng], { 
             color: '#3b82f6', 
             weight: 4, 
-            dashArray: '5, 10',
+            dashArray: '10, 10',
+            className: 'ruler-animated-path',
             interactive: false 
         }).addTo(rulerLayer);
         
