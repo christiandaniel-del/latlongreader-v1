@@ -253,6 +253,10 @@ body {
     color: white;
 }
 
+.ruler-tooltip {
+    pointer-events: none;
+}
+
 /* --- CONTENT VIEWS --- */
 
 .view-content {
