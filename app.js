@@ -15,6 +15,7 @@ let tcPolygons = [];
 let isRulerActive = false;
 let rulerPoints = [];
 let rulerLayer;
+const NOTAM_COLORS = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
 
 // Mock Flight Data
 let flights = [
@@ -32,8 +33,10 @@ function handleLogin(event) {
     document.getElementById('appShell').style.display = 'block';
     
     setTimeout(() => {
-        if (map) map.invalidateSize();
-    }, 100);
+        if (map) {
+            map.invalidateSize();
+        }
+    }, 200);
     
     setStatus('Welcome back, Dispatcher.', 'success');
 }
@@ -41,25 +44,37 @@ function handleLogin(event) {
 function switchView(viewId) {
     currentView = viewId;
     
+    // Update Sidebar UI
     document.querySelectorAll('.nav-item').forEach(item => {
         item.classList.remove('active');
         if (item.dataset.view === viewId) item.classList.add('active');
     });
     
+    // Update Content View
     document.querySelectorAll('.view-content').forEach(view => {
         view.classList.remove('active');
     });
-    document.getElementById(viewId + 'View').classList.add('active');
+    const targetView = document.getElementById(viewId + 'View');
+    if (targetView) targetView.classList.add('active');
     
-    if (viewId === 'route-map') {
-        setTimeout(() => map.invalidateSize(), 100);
-    } else if (viewId === 'flight-list') {
+    // View-specific logic
+    if (viewId === 'route-map' || viewId === 'integrator') {
+        setTimeout(() => {
+            if (map) map.invalidateSize();
+        }, 100);
+    }
+    
+    if (viewId === 'flight-list') {
         renderFlightTable();
     }
+    
+    updateDashboard();
+    lucide.createIcons();
 }
 
 function renderFlightTable() {
     const tbody = document.getElementById('flightTableBody');
+    if (!tbody) return;
     tbody.innerHTML = flights.map(f => `
         <tr onclick="selectFlight('${f.id}')" style="cursor: pointer;">
             <td>${f.id}</td>
@@ -239,6 +254,10 @@ function updateDashboard() {
     const activeCount = flights.filter(f => f.status === 'ACTIVE').length;
     const el = document.getElementById('activeFlightsCount');
     if (el) el.textContent = activeCount;
+    
+    const notamCount = storedData.notam.length;
+    const notamEl = document.getElementById('notamAlertCount');
+    if (notamEl) notamEl.textContent = notamCount;
 }
 
 // --- MAP INIT ---
@@ -301,7 +320,7 @@ function addRulerPoint(latlng) {
         
         L.marker(latlng, {
             icon: L.divIcon({
-                className: 'ruler-tooltip-div',
+                className: 'ruler-tooltip',
                 html: `<div style="background: white; padding: 2px 5px; border: 1px solid var(--primary); border-radius: 4px; font-size: 10px; font-weight: bold; white-space: nowrap;">${distNM} NM</div>`,
                 iconSize: [60, 20],
                 iconAnchor: [-10, 10]
@@ -316,16 +335,37 @@ function addRulerPoint(latlng) {
 function clearRuler() {
     rulerPoints = [];
     rulerLayer.clearLayers();
-    document.getElementById('rulerClearBtn').style.display = 'none';
+    const btn = document.getElementById('rulerClearBtn');
+    if (btn) btn.style.display = 'none';
 }
 
-// --- PARSING FUNCTIONS (PRESERVED) ---
+// --- PARSING LOGIC ---
+
+function handleParse() {
+    const input = document.getElementById('mainInput');
+    if (!input) return;
+    const text = normalizeInput(input.value);
+    if (!text) return setStatus('No data to parse', 'error');
+    
+    try {
+        if (activeTab === 'navtech') parseNavtech(text);
+        else if (activeTab === 'vona') parseVona(text);
+        else if (activeTab === 'notam') parseNotam(text);
+        else if (activeTab === 'tc') parseTC(text);
+        
+        setStatus(`${activeTab.toUpperCase()} data parsed successfully.`, 'success');
+        updateDashboard();
+    } catch (e) {
+        setStatus(`Parsing error: ${e.message}`, 'error');
+    }
+}
 
 function parseNavtech(text) {
     layers.navtech.clearLayers();
     storedData.navtech = { coords: [], polyline: null, markers: [] };
     const lines = text.split('\n').filter(line => line.trim().length > 0);
     const wpRegex = /([A-Z0-9]+)\s+([NS])\s*(\d{2})\s*(\d{2}\.?\d*)\s+([EW])\s*(\d{3})\s*(\d{2}\.?\d*)/g;
+    
     const parsedLines = lines.map(line => {
         const wps = [];
         let match;
@@ -338,8 +378,10 @@ function parseNavtech(text) {
         }
         return wps;
     });
+
     const nonEmpty = parsedLines.filter(arr => arr.length > 0);
-    if (nonEmpty.length === 0) return;
+    if (nonEmpty.length === 0) throw new Error('No valid waypoints found');
+
     const hasTwoCols = nonEmpty.some(arr => arr.length === 2);
     let orderedWaypoints = [];
     if (hasTwoCols) {
@@ -352,40 +394,55 @@ function parseNavtech(text) {
     } else {
         nonEmpty.forEach(arr => { orderedWaypoints = orderedWaypoints.concat(arr); });
     }
+
     storedData.navtech.coords = orderedWaypoints;
     const latlngs = orderedWaypoints.map(c => [c.lat, c.lng]);
     L.polyline(latlngs, { color: 'var(--primary)', weight: 4 }).addTo(layers.navtech);
+    
     orderedWaypoints.forEach((c, i) => {
         L.circleMarker([c.lat, c.lng], { radius: 4, color: 'var(--primary)', fillColor: 'white', fillOpacity: 1 })
             .addTo(layers.navtech)
             .bindTooltip(`${i+1}: ${c.name}`);
     });
+    
     fitBoundsAll();
 }
 
 function parseVona(text) {
     layers.vona.clearLayers();
     const psnMatch = text.match(/PSN:\s*([NS])\s*(\d{2})\s*(\d{2})\s+([EW])\s*(\d{3})\s*(\d{2})/i);
-    if (!psnMatch) return;
+    if (!psnMatch) throw new Error('Volcano position (PSN) not found');
+    
     const lat = (parseInt(psnMatch[2]) + parseInt(psnMatch[3])/60) * (psnMatch[1].toUpperCase()==='S'?-1:1);
     const lng = (parseInt(psnMatch[5]) + parseInt(psnMatch[6])/60) * (psnMatch[4].toUpperCase()==='W'?-1:1);
-    L.marker([lat, lng]).addTo(layers.vona).bindPopup('Volcano PSN');
+    
+    L.marker([lat, lng], {
+        icon: L.divIcon({ className: 'vona-marker', html: '<div style="width:12px; height:12px; background:#f44336; border-radius:50%; border:2px solid #fff;"></div>' })
+    }).addTo(layers.vona).bindPopup('Volcano Position');
+    
+    storedData.vona = { coords: [lat, lng] };
     fitBoundsAll();
 }
 
 function parseNotam(text) {
     layers.notam.clearLayers();
     storedData.notam = [];
-    const blocks = text.split(/(?=[A-Z]\d{1,5}\/\d{2}\s+NOTAM[NRC])/m);
+    notamPolygons = [];
+    
+    const blocks = text.split(/(?=[A-Z]\d{1,5}\/\d{2}\s+NOTAM[NRC])/m).filter(b => b.trim().length > 10);
+    
     blocks.forEach((block, idx) => {
         const radiusMatch = block.match(/WI\s+(\d+)\s*NM\s+OF\s+PSN\s+([\d\.NSEW]+)\s+([\d\.NSEW]+)/i);
+        const color = NOTAM_COLORS[idx % NOTAM_COLORS.length];
+        
         if (radiusMatch) {
             const radiusNM = parseInt(radiusMatch[1]);
             const lat = dmsToDecimal(radiusMatch[2]);
             const lng = dmsToDecimal(radiusMatch[3]);
             if (lat !== null && lng !== null) {
-                L.circle([lat, lng], { radius: radiusNM * 1852, color: '#dc3545', weight: 2 }).addTo(layers.notam);
-                storedData.notam.push({ id: 'NOTAM', type: 'circle' });
+                L.circle([lat, lng], { radius: radiusNM * 1852, color: color, weight: 2, fillOpacity: 0.1 }).addTo(layers.notam);
+                storedData.notam.push({ id: 'NOTAM', type: 'circle', center: [lat, lng], radius: radiusNM });
+                notamPolygons.push({ center: [lat, lng], radius: radiusNM });
             }
         }
     });
@@ -395,22 +452,51 @@ function parseNotam(text) {
 function parseTC(text) {
     layers.tc.clearLayers();
     const coordMatch = text.match(/NEAR\s+(\d+\.\d+[NS])\s+(\d+\.\d+[EW])/i);
-    if (coordMatch) {
-        const lat = dmsToDecimal(coordMatch[1]);
-        const lng = dmsToDecimal(coordMatch[2]);
-        L.circleMarker([lat, lng], { color: '#8b5cf6' }).addTo(layers.tc).bindPopup('TC Position');
-    }
+    if (!coordMatch) throw new Error('TC position not found');
+    
+    const lat = dmsToDecimal(coordMatch[1]);
+    const lng = dmsToDecimal(coordMatch[2]);
+    
+    L.circleMarker([lat, lng], { color: '#8b5cf6', radius: 8 }).addTo(layers.tc).bindPopup('Tropical Cyclone');
+    storedData.tc = { points: [{ lat, lng }] };
     fitBoundsAll();
 }
 
 function fitBoundsAll() {
     const group = new L.featureGroup();
     Object.values(layers).forEach(l => l.eachLayer(layer => group.addLayer(layer)));
-    if (group.getLayers().length) map.fitBounds(group.getBounds(), { padding: [40,40] });
+    if (group.getLayers().length && map) {
+        map.fitBounds(group.getBounds(), { padding: [40,40] });
+    }
+}
+
+function loadTemplate(tab) {
+    activeTab = tab;
+    // Implementation of templates from v3.0...
+    const templates = {
+        navtech: `WADD S 08 44.8 E 115 10.2 KALUT S 05 57.9 E 110 23.0\n08S115E S 08 44.9 E 115 10.9 KURUS S 05 57.7 E 108 28.7`,
+        vona: `PSN: S 08 06 E 112 55`,
+        notam: `A2334/26 NOTAMN\nE) WI 10NM OF PSN S0030 E11648`,
+        tc: `NEAR 21.6N 107.9E`
+    };
+    document.getElementById('mainInput').value = templates[tab] || '';
+}
+
+function printReport() {
+    window.print();
 }
 
 // --- INIT ---
 document.addEventListener('DOMContentLoaded', () => {
     initMap();
     updateDashboard();
+    
+    // Tab switching for integrator
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            activeTab = this.dataset.tab;
+        });
+    });
 });
