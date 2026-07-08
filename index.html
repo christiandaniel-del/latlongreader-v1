@@ -18,6 +18,53 @@
     
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* Additional Integrator Styles */
+        .integrator-tabs {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 1rem;
+            background: #f1f3f5;
+            padding: 5px;
+            border-radius: 8px;
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 8px;
+            border: none;
+            background: transparent;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: var(--text-muted);
+        }
+        .tab-btn.active {
+            background: white;
+            color: var(--primary);
+            box-shadow: var(--shadow-sm);
+        }
+        .input-area {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        #mainInput {
+            width: 100%;
+            height: 300px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            padding: 1rem;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            resize: none;
+            outline: none;
+        }
+        #mainInput:focus {
+            border-color: var(--primary);
+        }
+    </style>
 </head>
 <body>
 
@@ -28,15 +75,15 @@
                 <i data-lucide="plane"></i>
                 <span>Aviation Data Integrator PRO</span>
             </div>
-            <h2>Welcome Back</h2>
+            <h2>Dispatcher Portal</h2>
             <form id="loginForm" onsubmit="handleLogin(event)">
                 <div class="form-group" style="text-align: left;">
                     <label>Username</label>
-                    <input type="text" class="form-control" placeholder="Enter username" value="dispatcher_pro">
+                    <input type="text" class="form-control" placeholder="Enter username" value="dispatcher_pro" required>
                 </div>
                 <div class="form-group" style="text-align: left;">
                     <label>Password</label>
-                    <input type="password" class="form-control" placeholder="Enter password" value="••••••••">
+                    <input type="password" class="form-control" placeholder="Enter password" value="••••••••" required>
                 </div>
                 <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem;">LOGIN</button>
             </form>
@@ -71,6 +118,9 @@
                     <li class="nav-item active" data-view="dashboard" onclick="switchView('dashboard')">
                         <i data-lucide="layout-dashboard"></i> Dashboard
                     </li>
+                    <li class="nav-item" data-view="integrator" onclick="switchView('integrator')">
+                        <i data-lucide="file-input"></i> Data Integrator
+                    </li>
                     <li class="nav-item" data-view="flight-list" onclick="switchView('flight-list')">
                         <i data-lucide="list"></i> Flight List
                     </li>
@@ -83,22 +133,16 @@
                 </ul>
 
                 <div class="filter-section">
-                    <span class="filter-title">Quick Filters</span>
-                    <div class="form-group">
-                        <label>Date Range</label>
-                        <select class="form-control">
-                            <option>Today, July 09</option>
-                            <option>Yesterday</option>
-                            <option>Last 7 Days</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Flight Status</label>
-                        <select class="form-control">
-                            <option>All Flights</option>
-                            <option>Active</option>
-                            <option>Scheduled</option>
-                        </select>
+                    <span class="filter-title">Operational Status</span>
+                    <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+                        <div style="display: flex; justify-content: space-between; font-size: 0.8rem;">
+                            <span>Active Flights</span>
+                            <span id="activeFlightsCount" style="font-weight: 700;">24</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.8rem;">
+                            <span>NOTAM Alerts</span>
+                            <span id="notamAlertCount" style="font-weight: 700; color: #dc3545;">0</span>
+                        </div>
                     </div>
                 </div>
             </aside>
@@ -111,7 +155,7 @@
                     <div class="stats-grid">
                         <div class="stat-card">
                             <div class="stat-label">Active Flights</div>
-                            <div class="stat-value" id="activeFlightsCount">24</div>
+                            <div class="stat-value">24</div>
                         </div>
                         <div class="stat-card" style="border-bottom-color: #28a745;">
                             <div class="stat-label">Completed Today</div>
@@ -123,15 +167,38 @@
                         </div>
                         <div class="stat-card" style="border-bottom-color: #dc3545;">
                             <div class="stat-label">NOTAM Alerts</div>
-                            <div class="stat-value" id="notamAlertCount">3</div>
+                            <div class="stat-value">3</div>
                         </div>
                     </div>
 
                     <div style="background: white; padding: 2rem; border-radius: 8px; box-shadow: var(--shadow-sm);">
                         <h3>Traffic Analytics</h3>
-                        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">Average flight duration vs. last month</p>
-                        <div style="height: 200px; background: #f8f9fa; border: 1px dashed var(--border-color); display: flex; align-items: center; justify-content: center; color: var(--text-muted);">
+                        <div style="height: 200px; background: #f8f9fa; border: 1px dashed var(--border-color); display: flex; align-items: center; justify-content: center; color: var(--text-muted); margin-top: 1rem;">
                             [ Analytics Chart Placeholder ]
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Data Integrator View -->
+                <div id="integratorView" class="view-content">
+                    <h2 style="margin-bottom: 1.5rem;">Data Integrator</h2>
+                    <div style="background: white; padding: 2rem; border-radius: 8px; box-shadow: var(--shadow-sm); max-width: 800px;">
+                        <div class="integrator-tabs">
+                            <button class="tab-btn active" data-tab="navtech">NAVTECH</button>
+                            <button class="tab-btn" data-tab="vona">VONA</button>
+                            <button class="tab-btn" data-tab="notam">NOTAM</button>
+                            <button class="tab-btn" data-tab="tc">TC</button>
+                        </div>
+                        <div class="input-area">
+                            <textarea id="mainInput" placeholder="Paste data here..."></textarea>
+                            <div style="display: flex; gap: 10px;">
+                                <button class="btn btn-primary" onclick="handleParse()" style="flex: 1;">
+                                    <i data-lucide="play"></i> PARSE & INTEGRATE
+                                </button>
+                                <button class="btn btn-outline" onclick="loadTemplate(activeTab)" title="Load Template">
+                                    <i data-lucide="layout"></i>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -155,16 +222,6 @@
                             </thead>
                             <tbody id="flightTableBody">
                                 <!-- Data injected by JS -->
-                                <tr>
-                                    <td>GA123</td>
-                                    <td>08:30 UTC</td>
-                                    <td>WIII -> WARR</td>
-                                    <td><span class="status-badge status-active">ACTIVE</span></td>
-                                    <td>
-                                        <button class="btn btn-outline" style="padding: 4px 8px;"><i data-lucide="edit-2" style="width: 14px;"></i></button>
-                                        <button class="btn btn-outline" style="padding: 4px 8px;"><i data-lucide="trash-2" style="width: 14px;"></i></button>
-                                    </td>
-                                </tr>
                             </tbody>
                         </table>
                     </div>
@@ -195,15 +252,15 @@
                             </select>
                         </div>
                         <div class="form-group">
-                            <label>Map Theme</label>
-                            <div style="display: flex; gap: 10px; margin-top: 0.5rem;">
-                                <button class="btn btn-outline" style="flex: 1;">Light Mode</button>
-                                <button class="btn btn-primary" style="flex: 1;">Dark Mode</button>
+                            <label>Map Layers</label>
+                            <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 0.5rem;">
+                                <label style="display: flex; align-items: center; gap: 10px;">
+                                    <input type="checkbox" checked> Show Active Routes
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 10px;">
+                                    <input type="checkbox" checked> Show NOTAM Areas
+                                </label>
                             </div>
-                        </div>
-                        <div class="form-group">
-                            <label>Data Provider API Key</label>
-                            <input type="password" class="form-control" value="••••••••••••••••">
                         </div>
                         <button class="btn btn-primary" style="margin-top: 1rem;">SAVE CONFIGURATION</button>
                     </div>
