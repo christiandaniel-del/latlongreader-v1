@@ -3,652 +3,240 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aviation Data Integrator Pro</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <title>Aviation Data Integrator PRO</title>
+    
+    <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="styles.css">
+    
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
-    <style>
-        /* --- RESET & ROOT --- */
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        :root {
-            /* --- COLOR PALETTE (Midnight Slate) --- */
-            --bg-deep: #0a0c10;
-            --bg-surface: #161b22;
-            --bg-glass: rgba(22, 27, 34, 0.8);
-            --bg-card: rgba(33, 39, 47, 0.6);
-            --bg-input: rgba(13, 17, 23, 0.9);
-            
-            --primary: #38bdf8;
-            --primary-glow: rgba(56, 189, 248, 0.3);
-            --accent: #c084fc;
-            --accent-glow: rgba(192, 132, 252, 0.3);
-            
-            /* --- ACCENT COLORS (Data Specific) --- */
-            --accent-vona: #fb923c;     /* Soft Orange */
-            --accent-notam: #f87171;    /* Soft Red */
-            --accent-navtech: #4ade80;  /* Soft Green */
-            --accent-tc: #a78bfa;       /* Soft Purple */
-            
-            /* --- TEXT COLORS --- */
-            --text-main: #f0f6fc;
-            --text-muted: #8b949e;
-            --text-dim: #484f58;
-            
-            /* --- UI ELEMENTS --- */
-            --border: rgba(255, 255, 255, 0.1);
-            --font-main: 'Inter', system-ui, -apple-system, sans-serif;
-            --font-mono: 'JetBrains Mono', monospace;
-            
-            /* --- STATUS COLORS --- */
-            --status-clear: #4ade80;
-            --status-warning: #fbbf24;
-            --status-danger: #f87171;
-            
-            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-            --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-            
-            --transition-fast: 0.15s ease;
-            --transition-standard: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        body {
-            font-family: var(--font-main);
-            background: var(--bg-deep);
-            color: var(--text-main);
-            overflow: hidden;
-            height: 100vh;
-            -webkit-font-smoothing: antialiased;
-        }
-        .app-shell {
-            display: grid;
-            grid-template-rows: 48px 1fr 24px;
-            height: 100vh;
-        }
-
-        /* --- HEADER --- */
-        header {
-            background: var(--bg-glass);
-            backdrop-filter: blur(20px) saturate(180%);
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0 24px;
-            z-index: 1000;
-            box-shadow: var(--shadow-md);
-        }
-        .header-brand {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-        .header-brand h1 {
-            font-size: 13px;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            color: var(--text-main);
-            background: linear-gradient(135deg, #fff 0%, var(--primary) 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .header-brand .tag {
-            background: rgba(56, 189, 248, 0.1);
-            color: var(--primary);
-            padding: 2px 8px;
-            border-radius: 6px;
-            font-size: 10px;
-            font-weight: 800;
-            border: 1px solid var(--primary-glow);
-        }
-        .utc-clock {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            background: var(--bg-input);
-            padding: 6px 16px;
-            border-radius: 12px;
-            border: 1px solid var(--border);
-            font-family: var(--font-mono);
-            font-size: 12px;
-            color: var(--primary);
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
-        }
-        .utc-clock span:first-child {
-            color: var(--text-muted);
-            font-size: 9px;
-            font-weight: bold;
-            letter-spacing: 1px;
-        }
-
-        /* --- MAIN --- */
-        main {
-            display: grid;
-            grid-template-columns: 420px 1fr;
-            overflow: hidden;
-        }
-
-        /* --- SIDEBAR --- */
-        .sidebar {
-            background: rgba(13, 17, 23, 0.4);
-            border-right: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-            overflow-y: auto;
-            padding: 16px;
-            gap: 16px;
-            backdrop-filter: blur(4px);
-            transition: transform var(--transition-standard);
-        }
-        .sidebar::-webkit-scrollbar { width: 4px; }
-        .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-
-        /* Dashboard Summary */
-        .dashboard {
-            background: var(--bg-surface);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            padding: 20px;
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
-            box-shadow: var(--shadow-xl);
-            position: relative;
-            overflow: hidden;
-        }
-        .dashboard::before {
-            content: '';
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 2px;
-            background: linear-gradient(90deg, var(--primary), var(--accent));
-        }
-        .dash-item {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            font-size: 10px;
-            font-weight: 600;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        .dash-value {
-            color: var(--text-main);
-            font-weight: 700;
-            font-size: 14px;
-            font-family: var(--font-mono);
-        }
-        .dash-value.updated {
-            animation: pulse-value 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        @keyframes pulse-value {
-            0% { transform: scale(1); color: var(--primary); }
-            50% { transform: scale(1.05); color: #fff; text-shadow: 0 0 12px var(--primary-glow); }
-            100% { transform: scale(1); color: var(--text-main); }
-        }
-        .dash-status-container {
-            grid-column: span 2;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding-bottom: 8px;
-            margin-bottom: 4px;
-            border-bottom: 1px solid var(--border);
-        }
-        .dash-status {
-            font-weight: 700;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 10px;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-            transition: all var(--transition-standard);
-        }
-        .dash-status.clear { background: rgba(16, 185, 129, 0.2); color: var(--status-clear); border: 1px solid var(--status-clear); }
-        .dash-status.warning { background: rgba(245, 158, 11, 0.2); color: var(--status-warning); border: 1px solid var(--status-warning); }
-        .dash-status.danger { background: rgba(239, 68, 68, 0.2); color: var(--status-danger); border: 1px solid var(--status-danger); }
-
-        /* Tabs */
-        .tab-nav {
-            display: flex;
-            background: var(--bg-surface);
-            padding: 6px;
-            border-radius: 14px;
-            gap: 6px;
-            border: 1px solid var(--border);
-            box-shadow: var(--shadow-md);
-        }
-        .tab-btn {
-            flex: 1;
-            background: transparent;
-            border: none;
-            color: var(--text-muted);
-            padding: 12px 8px;
-            font-size: 10px;
-            font-weight: 700;
-            border-radius: 10px;
-            cursor: pointer;
-            transition: all var(--transition-standard);
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 6px;
-        }
-        .tab-btn i { font-size: 16px; margin-bottom: 2px; }
-        .tab-btn:hover { color: #fff; background: rgba(255,255,255,0.03); }
-        .tab-btn.active { background: var(--bg-input); color: var(--primary); border: 1px solid var(--primary-glow); box-shadow: 0 0 20px var(--primary-glow); }
-        .tab-btn.active[data-tab="vona"] { color: var(--accent-vona); border-color: rgba(251, 146, 60, 0.3); box-shadow: 0 0 20px rgba(251, 146, 60, 0.2); }
-        .tab-btn.active[data-tab="notam"] { color: var(--accent-notam); border-color: rgba(248, 113, 113, 0.3); box-shadow: 0 0 20px rgba(248, 113, 113, 0.2); }
-        .tab-btn.active[data-tab="tc"] { color: var(--accent-tc); border-color: rgba(167, 139, 250, 0.3); box-shadow: 0 0 20px rgba(167, 139, 250, 0.2); }
-
-        /* Input area */
-        .input-area {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-        .input-area textarea {
-            width: 100%;
-            height: 160px;
-            background: var(--bg-input);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            color: #c9d1d9;
-            padding: 16px;
-            font-family: var(--font-mono);
-            font-size: 12px;
-            resize: none;
-            outline: none;
-            transition: all var(--transition-fast);
-            box-shadow: inset 0 2px 8px rgba(0,0,0,0.5);
-        }
-        .input-area textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-glow), inset 0 2px 8px rgba(0,0,0,0.5); }
-        .input-actions {
-            display: grid;
-            grid-template-columns: 1.2fr 1fr auto;
-            gap: 10px;
-        }
-        .btn {
-            padding: 12px 20px;
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            font-weight: 700;
-            font-size: 10px;
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            white-space: nowrap;
-            transition: all var(--transition-standard);
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        .btn i { width: 14px; height: 14px; }
-        .btn-primary { background: var(--primary); color: #000; border: none; }
-        .btn-primary:hover { background: #7dd3fc; transform: translateY(-2px); box-shadow: 0 4px 20px var(--primary-glow); }
-        .btn-success { background: var(--accent-navtech); color: #000; border: none; }
-        .btn-success:hover { background: #86efac; transform: translateY(-2px); box-shadow: 0 4px 20px rgba(74, 222, 128, 0.3); }
-        .btn-outline { background: rgba(255,255,255,0.03); border: 1px solid var(--border); color: var(--text-main); }
-        .btn-outline:hover { background: rgba(255,255,255,0.08); border-color: var(--text-muted); transform: translateY(-1px); }
-        .btn-sm { padding: 6px 12px; font-size: 9px; border-radius: 6px; }
-
-        /* Data Cards */
-        .card {
-            background: var(--bg-surface);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            padding: 20px;
-            display: none;
-            animation: card-slide-in 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-            box-shadow: var(--shadow-xl);
-            backdrop-filter: blur(20px);
-        }
-        @keyframes card-slide-in {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 16px;
-            border-bottom: 1px solid var(--border);
-            padding-bottom: 12px;
-        }
-        .card-title {
-            font-size: 11px;
-            font-weight: 800;
-            text-transform: uppercase;
-            color: var(--text-main);
-            letter-spacing: 1.5px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .data-list { font-size: 12px; display: flex; flex-direction: column; gap: 8px; }
-        .data-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.03); }
-        .data-label { color: var(--text-muted); font-size: 11px; }
-        .data-value { color: #fff; font-family: var(--font-mono); font-size: 12px; }
-        
-        .scrollable-list { 
-            max-height: 250px; 
-            overflow-y: auto; 
-            padding-right: 4px;
-            margin-top: 8px;
-        }
-        .scrollable-list::-webkit-scrollbar { width: 3px; }
-        .scrollable-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
-
-        .notam-block {
-            padding: 10px 12px;
-            margin-bottom: 8px;
-            border-radius: 8px;
-            background: rgba(0,0,0,0.3);
-            border-left: 4px solid var(--accent-notam);
-            cursor: pointer;
-            transition: all var(--transition-fast);
-        }
-        .notam-block:hover { background: rgba(255,255,255,0.05); transform: translateX(4px); }
-
-        /* Map */
-        #map { background: var(--bg-deep); transition: all var(--transition-standard); }
-        .map-overlay {
-            position: absolute;
-            z-index: 1000;
-            pointer-events: none;
-            animation: fade-in 0.5s ease-out;
-        }
-        @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-        
-        .map-coords {
-            bottom: 40px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: var(--bg-glass);
-            backdrop-filter: blur(20px);
-            padding: 8px 20px;
-            border-radius: 30px;
-            font-family: var(--font-mono);
-            font-size: 12px;
-            color: var(--primary);
-            border: 1px solid var(--primary-glow);
-            box-shadow: 0 0 20px rgba(0,0,0,0.5);
-            letter-spacing: 1px;
-        }
-        .legend {
-            top: 24px;
-            right: 24px;
-            background: var(--bg-glass);
-            backdrop-filter: blur(20px);
-            padding: 16px;
-            border-radius: 16px;
-            border: 1px solid var(--border);
-            font-size: 10px;
-            pointer-events: auto;
-            box-shadow: var(--shadow-xl);
-        }
-        .legend-title {
-            font-weight: 800;
-            text-transform: uppercase;
-            margin-bottom: 12px;
-            color: var(--text-main);
-            letter-spacing: 1px;
-            font-size: 9px;
-            border-bottom: 1px solid var(--border);
-            padding-bottom: 8px;
-        }
-        .legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-        .legend-box { width: 10px; height: 10px; border-radius: 2px; }
-
-        /* Pulse marker */
-        .pulse-marker {
-            width: 12px; height: 12px; border-radius: 50%;
-            background: var(--accent-vona); border: 2px solid white;
-            box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.7);
-            animation: pulse-ring 1.5s infinite;
-        }
-        @keyframes pulse-ring {
-            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.7); }
-            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(249, 115, 22, 0); }
-            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(249, 115, 22, 0); }
-        }
-
-        /* Footer */
-        footer {
-            background: var(--bg-glass);
-            backdrop-filter: blur(20px);
-            border-top: 1px solid var(--border);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0 24px;
-            font-size: 10px;
-            color: var(--text-muted);
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        #statusMsg { display: flex; align-items: center; gap: 6px; transition: all var(--transition-fast); }
-        #statusMsg::before { content: '●'; font-size: 8px; }
-        #statusMsg.error { color: var(--accent-notam); }
-        #statusMsg.success { color: var(--accent-navtech); }
-        #statusMsg.warning { color: var(--status-warning); }
-
-        /* Custom Scrollbar for Map popups */
-        .leaflet-popup-content-wrapper { background: var(--bg-glass) !important; color: white !important; backdrop-filter: blur(12px); border: 1px solid var(--border); box-shadow: var(--shadow-lg); }
-        .leaflet-popup-tip { background: var(--bg-glass) !important; }
-
-        /* TC Map Labels */
-        .tc-map-label {
-            background: var(--bg-glass);
-            border: 1px solid var(--primary-glow);
-            color: #fff;
-            font-family: var(--font-mono);
-            font-size: 10px;
-            font-weight: 700;
-            padding: 4px 10px;
-            border-radius: 8px;
-            box-shadow: var(--shadow-lg);
-            pointer-events: none;
-            backdrop-filter: blur(10px);
-        }
-        .tc-map-label::before { border-right-color: var(--primary-glow) !important; }
-
-        /* Ruler Tool */
-        .ruler-control {
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            display: flex;
-            flex-direction: row;
-            gap: 8px;
-            pointer-events: auto;
-        }
-        .ruler-btn {
-            width: 36px;
-            height: 36px;
-            background: var(--bg-glass);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            color: var(--text-main);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            transition: all var(--transition-fast);
-            backdrop-filter: blur(8px);
-            box-shadow: var(--shadow-lg);
-        }
-        .ruler-btn:hover { background: rgba(255,255,255,0.1); border-color: var(--primary); transform: translateY(-2px); }
-        .ruler-btn.active { 
-            background: var(--primary); 
-            color: #fff; 
-            border-color: #fff;
-            box-shadow: 0 0 15px var(--primary-glow);
-        }
-        
-        .ruler-tooltip {
-            background: rgba(13, 17, 23, 0.95);
-            border: 1px solid var(--primary);
-            color: #fff;
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-family: var(--font-mono);
-            font-size: 11px;
-            font-weight: bold;
-            pointer-events: none;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-            white-space: nowrap;
-            animation: tooltip-pop 0.2s cubic-bezier(0.17, 0.84, 0.44, 1);
-        }
-        @keyframes tooltip-pop { from { transform: scale(0.8) translateY(10px); opacity: 0; } to { transform: scale(1) translateY(0); opacity: 1; } }
-
-        /* Animated Path for Ruler */
-        .ruler-animated-path {
-            stroke-dasharray: 10;
-            animation: dash-animation 20s linear infinite;
-        }
-        @keyframes dash-animation { from { stroke-dashoffset: 0; } to { stroke-dashoffset: 1000; } }
-
-        /* Responsiveness */
-        @media (max-width: 1024px) {
-            main { grid-template-columns: 350px 1fr; }
-        }
-        @media (max-width: 768px) {
-            main { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
-            .sidebar { border-right: none; border-bottom: 1px solid var(--border); height: 50vh; }
-            #map { height: 50vh; }
-        }
-
-        /* Print styles */
-        @media print {
-            * { background: transparent !important; color: black !important; box-shadow: none !important; text-shadow: none !important; }
-            .no-print, header, footer, .tab-nav, .input-area, .ruler-control, .legend, .map-coords { display: none !important; }
-            body { overflow: visible; height: auto; }
-            .app-shell { display: block; }
-            main { display: block; }
-            .sidebar { width: 100%; border: none; padding: 0; display: block; }
-            .card { display: block !important; border: 1px solid #ddd; margin-bottom: 20px; page-break-inside: avoid; }
-            #map { width: 100%; height: 500px; border: 1px solid #ddd; margin-bottom: 20px; }
-            .dashboard { display: grid; grid-template-columns: 1fr 1fr 1fr; border: 1px solid #ddd; margin-bottom: 20px; }
-            #printArea { display: block !important; }
-        }
-
-    </style>
 </head>
 <body>
-<div class="app-shell">
-    <header>
-        <div class="header-brand">
-            <i data-lucide="plane" style="color: var(--primary); width: 18px;"></i>
-            <h1>Aviation Data Integrator</h1>
-            <span class="tag">PRO</span>
+
+    <!-- Login Page Mockup -->
+    <div id="loginPage" class="login-overlay">
+        <div class="login-card">
+            <div class="logo-container" style="justify-content: center; margin-bottom: 1rem;">
+                <i data-lucide="plane"></i>
+                <span>Aviation Data Integrator PRO</span>
+            </div>
+            <h2>Welcome Back</h2>
+            <form id="loginForm" onsubmit="handleLogin(event)">
+                <div class="form-group" style="text-align: left;">
+                    <label>Username</label>
+                    <input type="text" class="form-control" placeholder="Enter username" value="dispatcher_pro">
+                </div>
+                <div class="form-group" style="text-align: left;">
+                    <label>Password</label>
+                    <input type="password" class="form-control" placeholder="Enter password" value="••••••••">
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem;">LOGIN</button>
+            </form>
         </div>
-        <div class="header-controls">
-            <div class="utc-clock">
-                <i data-lucide="clock" style="width: 14px; color: var(--text-muted);"></i>
-                <span id="clockDisplay">00:00:00</span>
+    </div>
+
+    <!-- Main App Structure -->
+    <div id="appShell" style="display: none;">
+        <header class="header">
+            <div class="logo-container">
+                <i data-lucide="plane"></i>
+                <span>Aviation Data Integrator PRO</span>
             </div>
-            <button class="btn btn-outline btn-sm" onclick="printReport()">
-                <i data-lucide="file-text"></i> PDF REPORT
-            </button>
+            <div style="display: flex; align-items: center; gap: 20px;">
+                <div class="clock-display">
+                    <span id="clockDisplay">00:00:00 UTC</span>
+                </div>
+                <button class="btn btn-outline" onclick="printReport()">
+                    <i data-lucide="file-text"></i> PDF REPORT
+                </button>
+                <div style="display: flex; align-items: center; gap: 10px; border-left: 1px solid var(--border-color); padding-left: 20px;">
+                    <i data-lucide="user" style="width: 20px; color: var(--text-muted);"></i>
+                    <span style="font-size: 0.9rem; font-weight: 500;">Dispatcher</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="main-container">
+            <!-- Left Sidebar -->
+            <aside class="sidebar">
+                <ul class="nav-menu">
+                    <li class="nav-item active" data-view="dashboard" onclick="switchView('dashboard')">
+                        <i data-lucide="layout-dashboard"></i> Dashboard
+                    </li>
+                    <li class="nav-item" data-view="flight-list" onclick="switchView('flight-list')">
+                        <i data-lucide="list"></i> Flight List
+                    </li>
+                    <li class="nav-item" data-view="route-map" onclick="switchView('route-map')">
+                        <i data-lucide="map"></i> Route Map
+                    </li>
+                    <li class="nav-item" data-view="settings" onclick="switchView('settings')">
+                        <i data-lucide="settings"></i> Settings
+                    </li>
+                </ul>
+
+                <div class="filter-section">
+                    <span class="filter-title">Quick Filters</span>
+                    <div class="form-group">
+                        <label>Date Range</label>
+                        <select class="form-control">
+                            <option>Today, July 09</option>
+                            <option>Yesterday</option>
+                            <option>Last 7 Days</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Flight Status</label>
+                        <select class="form-control">
+                            <option>All Flights</option>
+                            <option>Active</option>
+                            <option>Scheduled</option>
+                        </select>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Center Content Area -->
+            <main class="center-area">
+                <!-- Dashboard View -->
+                <div id="dashboardView" class="view-content active">
+                    <h2 style="margin-bottom: 1.5rem;">Operations Summary</h2>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-label">Active Flights</div>
+                            <div class="stat-value" id="activeFlightsCount">24</div>
+                        </div>
+                        <div class="stat-card" style="border-bottom-color: #28a745;">
+                            <div class="stat-label">Completed Today</div>
+                            <div class="stat-value">142</div>
+                        </div>
+                        <div class="stat-card" style="border-bottom-color: #ffc107;">
+                            <div class="stat-label">Avg. Flight Time</div>
+                            <div class="stat-value">4h 12m</div>
+                        </div>
+                        <div class="stat-card" style="border-bottom-color: #dc3545;">
+                            <div class="stat-label">NOTAM Alerts</div>
+                            <div class="stat-value" id="notamAlertCount">3</div>
+                        </div>
+                    </div>
+
+                    <div style="background: white; padding: 2rem; border-radius: 8px; box-shadow: var(--shadow-sm);">
+                        <h3>Traffic Analytics</h3>
+                        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">Average flight duration vs. last month</p>
+                        <div style="height: 200px; background: #f8f9fa; border: 1px dashed var(--border-color); display: flex; align-items: center; justify-content: center; color: var(--text-muted);">
+                            [ Analytics Chart Placeholder ]
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Flight List View -->
+                <div id="flightListView" class="view-content">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                        <h2>Flight Management</h2>
+                        <button class="btn btn-primary"><i data-lucide="plus"></i> NEW FLIGHT</button>
+                    </div>
+                    <div class="data-table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Flight No</th>
+                                    <th>Departure</th>
+                                    <th>Route</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="flightTableBody">
+                                <!-- Data injected by JS -->
+                                <tr>
+                                    <td>GA123</td>
+                                    <td>08:30 UTC</td>
+                                    <td>WIII -> WARR</td>
+                                    <td><span class="status-badge status-active">ACTIVE</span></td>
+                                    <td>
+                                        <button class="btn btn-outline" style="padding: 4px 8px;"><i data-lucide="edit-2" style="width: 14px;"></i></button>
+                                        <button class="btn btn-outline" style="padding: 4px 8px;"><i data-lucide="trash-2" style="width: 14px;"></i></button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Route Map View -->
+                <div id="routeMapView" class="view-content" style="padding: 0; position: relative;">
+                    <div class="ruler-tools">
+                        <button id="rulerBtn" class="ruler-btn" onclick="toggleRuler()" title="Measure Distance (NM)">
+                            <i data-lucide="ruler"></i>
+                        </button>
+                        <button id="rulerClearBtn" class="ruler-btn" onclick="clearRuler()" title="Clear Measurement" style="display: none;">
+                            <i data-lucide="trash-2"></i>
+                        </button>
+                    </div>
+                    <div id="map"></div>
+                </div>
+
+                <!-- Settings View -->
+                <div id="settingsView" class="view-content">
+                    <h2>Application Settings</h2>
+                    <div style="background: white; padding: 2rem; border-radius: 8px; box-shadow: var(--shadow-sm); margin-top: 1.5rem; max-width: 600px;">
+                        <div class="form-group">
+                            <label>Time Zone Preference</label>
+                            <select class="form-control">
+                                <option>Universal Time Coordinated (UTC)</option>
+                                <option>Local Time (Jakarta/WIB)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Map Theme</label>
+                            <div style="display: flex; gap: 10px; margin-top: 0.5rem;">
+                                <button class="btn btn-outline" style="flex: 1;">Light Mode</button>
+                                <button class="btn btn-primary" style="flex: 1;">Dark Mode</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Data Provider API Key</label>
+                            <input type="password" class="form-control" value="••••••••••••••••">
+                        </div>
+                        <button class="btn btn-primary" style="margin-top: 1rem;">SAVE CONFIGURATION</button>
+                    </div>
+                </div>
+            </main>
+
+            <!-- Right Panel (Flight Details) -->
+            <aside id="rightPanel" class="right-panel hidden">
+                <div style="padding: 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+                    <h3 id="panelTitle">Flight Details</h3>
+                    <button class="btn btn-outline" style="padding: 4px;" onclick="toggleRightPanel(false)"><i data-lucide="x"></i></button>
+                </div>
+                <div id="panelContent" style="padding: 1.5rem;">
+                    <!-- Details injected by JS -->
+                </div>
+            </aside>
         </div>
-    </header>
 
-    <main>
-        <div class="sidebar">
-            <!-- Dashboard Summary -->
-            <div class="dashboard no-print" id="dashboard">
-                <div class="dash-status-container">
-                    <span class="dash-item" style="flex-direction: row; align-items: center; gap: 8px;">
-                        <span id="dashStatus" class="dash-status clear">CLEAR</span>
-                    </span>
-                    <span class="dash-item" style="text-align: right;">
-                        <span class="dash-value" id="clockDisplayDash">00:00:00</span>
-                    </span>
-                </div>
-                <div class="dash-item">
-                    <span>ROUTE</span>
-                    <span class="dash-value" id="dashRoute">-</span>
-                </div>
-                <div class="dash-item">
-                    <span class="dash-value"><span id="dashNotamCount">0</span> NOTAM / <span id="dashVonaCount">0</span> VONA / <span id="dashTcCount">0</span> TC</span>
-                </div>
+        <footer class="footer">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span id="statusIndicator" style="width: 8px; height: 8px; border-radius: 50%; background: #28a745;"></span>
+                <span id="statusMsg">System Ready</span>
             </div>
+            <div>Aviation Data Integrator PRO v4.0 © 2026 Airline Standard</div>
+        </footer>
+    </div>
 
-            <!-- Tab Navigation -->
-            <nav class="tab-nav no-print">
-                <button class="tab-btn active" data-tab="navtech">
-                    <i data-lucide="map-pin"></i>
-                    <span>NAVTECH</span>
-                </button>
-                <button class="tab-btn" data-tab="vona">
-                    <i data-lucide="flame"></i>
-                    <span>VONA</span>
-                </button>
-                <button class="tab-btn" data-tab="notam">
-                    <i data-lucide="alert-triangle"></i>
-                    <span>NOTAM</span>
-                </button>
-                <button class="tab-btn" data-tab="tc">
-                    <i data-lucide="wind"></i>
-                    <span>TC</span>
-                </button>
-            </nav>
-
-            <!-- Input area with template buttons -->
-            <div class="input-area no-print" id="inputArea">
-                <textarea id="mainInput" placeholder="Paste data here (NOTAM, VONA, TC, or NAVTECH)..."></textarea>
-                <div class="input-actions">
-                    <button class="btn btn-primary" onclick="handleParse()">
-                        <i data-lucide="play"></i> PARSE
-                    </button>
-                    <button class="btn btn-success" onclick="analyzeAll()">
-                        <i data-lucide="search"></i> ANALYZE
-                    </button>
-                    <button class="btn btn-outline" onclick="loadTemplate()">
-                        <i data-lucide="layout"></i>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Data Cards -->
-            <div id="navtechCard" class="card">
-                <div class="card-header"><span class="card-title">Route Information</span>
-                    <button class="btn btn-outline btn-sm" onclick="downloadKML('navtech')">KML</button>
-                </div>
-                <div class="data-list">
-                    <div class="data-row"><span class="data-label">WAYPOINTS</span><span class="data-value" id="navCount">0</span></div>
-                </div>
-                <div class="scrollable-list" id="navPoints"></div>
-                <div id="navtechIntersect" style="margin-top:12px;"></div>
-            </div>
-
-            <div id="vonaCard" class="card">
-                <div class="card-header"><span class="card-title">Volcanic Advisory</span>
-                    <button class="btn btn-outline btn-sm" onclick="downloadKML('vona')">KML</button>
-                </div>
-                <div class="data-list" id="vonaDetails"></div>
-                <div id="vonaIntersect" style="margin-top:12px;"></div>
-            </div>
-
-            <div id="notamCard" class="card">
-                <div class="card-header"><span class="card-title">Active NOTAMs</span>
-                    <button class="btn btn-outline btn-sm" onclick="downloadKML('notam')">KML</button>
-                </div>
-                <div class="scrollable-list" id="notamResults"></div>
-                <div id="notamIntersect" style="margin-top:12px;"></div>
-            </div>
-
-            <div id="tcCard" class="card">
-                <div class="card-header"><span class="card-title">Tropical Cyclone</span>
-                    <button class="btn btn-outline btn-sm" onclick="downloadKML('tc')">KML</button>
-                </div>
-       
+    <!-- Scripts -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="app.js"></script>
+    <script>
+        // Initialize Lucide Icons
+        lucide.createIcons();
+    </script>
+</body>
+</html>
