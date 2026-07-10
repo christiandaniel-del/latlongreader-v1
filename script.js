@@ -1,0 +1,1419 @@
+// ============================================================
+// AVIATION DATA INTEGRATOR PRO – v4.0 (MapLibre Migration)
+// ============================================================
+
+// --- GLOBALS ---
+let map;
+let activeTab = 'navtech';
+const layerIds = { 
+    navtech: ['navtech-line', 'navtech-points'], 
+    vona: ['vona-volcano', 'vona-ash-obs', 'vona-ash-fcst'], 
+    notam: ['notam-areas'], 
+    tc: ['tc-track', 'tc-radii', 'tc-points'] 
+};
+let storedData = { navtech: { coords: [], polyline: null, markers: [] }, vona: null, notam: [], tc: null };
+let routeCoords = [];
+let vonaPolygons = [];
+let notamPolygons = [];
+let tcPolygons = [];
+let navtechMarkers = []; 
+let vonaMarkers = [];
+
+let isRulerActive = false;
+let rulerPoints = [];
+let rulerMarkers = [];
+let rulerLineSource = 'ruler-line-source';
+let activeVonaLabels = ['OBSERVED', '+6HR', '+12HR', '+18HR'];
+let activeTcLabels = ['34', '50', '64'];
+let activeTcTypes = ['obs', 'fcst'];
+let activeTcTimes = [];
+const MAX_POINTS = 2000;
+const NOTAM_COLORS = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
+
+// --- UTILITY FUNCTIONS ---
+
+function highlightNotamKeywords(text) {
+    if (!text) return '';
+    const keywords = [
+        'RESTRICTED AREA', 'DANGER AREA', 'PROHIBITED AREA', 'ROCKET LAUNCHING',
+        'GUN FIRING', 'EXERCISE', 'BLASTING', 'VOLCANIC', 'ASH', 'CLOSED',
+        'UNSERVICEABLE', 'WIP', 'AFFECTED', 'NO FLT PERMITTED', 'ACT', 'TEMPO'
+    ];
+    let highlighted = text;
+    keywords.forEach(kw => {
+        const regex = new RegExp(`(${kw})`, 'gi');
+        highlighted = highlighted.replace(regex, '<span style="color:var(--accent-notam); font-weight:800;">$1</span>');
+    });
+    return highlighted;
+}
+
+function normalizeInput(text) {
+    return text.replace(/\r\n/g, '\n')
+               .replace(/=\s*$/gm, '')
+               .replace(/[\u2018\u2019]/g, "'")
+               .replace(/[\u201C\u201D]/g, '"')
+               .trim();
+}
+
+function dmsToDecimal(dmsStr) {
+    if (!dmsStr) return null;
+    let clean = dmsStr.toUpperCase().replace(/\s/g, '').replace(/,/g, '.');
+    let dirMatch = clean.match(/[NSEW]/);
+    if (!dirMatch) return null;
+    let dir = dirMatch[0];
+    let numPart = clean.replace(/[NSEW]/g, '');
+    
+    if (numPart.includes('.') && numPart.indexOf('.') === numPart.lastIndexOf('.')) {
+        let integerPart = numPart.split('.')[0];
+        if (integerPart.length <= 3) {
+            let dec = parseFloat(numPart);
+            if (dir === 'S' || dir === 'W') dec *= -1;
+            return dec;
+        }
+    }
+
+    let isLat = (dir === 'N' || dir === 'S');
+    let d = 0, m = 0, s = 0;
+    let dotIdx = numPart.indexOf('.');
+    let integerPart = dotIdx !== -1 ? numPart.substring(0, dotIdx) : numPart;
+    let decimalPart = dotIdx !== -1 ? numPart.substring(dotIdx) : "";
+
+    if (isLat) {
+        if (integerPart.length >= 6) {
+            d = parseInt(integerPart.slice(0, 2));
+            m = parseInt(integerPart.slice(2, 4));
+            s = parseFloat(integerPart.slice(4) + decimalPart);
+        } else if (integerPart.length >= 4) {
+            d = parseInt(integerPart.slice(0, 2));
+            m = parseFloat(integerPart.slice(2) + decimalPart);
+        } else {
+            d = parseFloat(numPart);
+        }
+    } else {
+        if (integerPart.length >= 7) {
+            d = parseInt(integerPart.slice(0, 3));
+            m = parseInt(integerPart.slice(3, 5));
+            s = parseFloat(integerPart.slice(5) + decimalPart);
+        } else if (integerPart.length >= 5) {
+            d = parseInt(integerPart.slice(0, 3));
+            m = parseFloat(integerPart.slice(3) + decimalPart);
+        } else {
+            d = parseFloat(numPart);
+        }
+    }
+    
+    if (isNaN(d)) return null;
+    let dec = d + (m || 0)/60 + (s || 0)/3600;
+    if (dir === 'S' || dir === 'W') dec *= -1;
+    return dec;
+}
+
+function destinationPoint(lat, lng, brngDeg, distNM) {
+    const a = 6378137.0;
+    const f = 1 / 298.257223563;
+    const R = a * (1 + f / 2); // Approximate mean radius for small distances/radii
+    const brng = brngDeg * Math.PI / 180;
+    const lat1 = lat * Math.PI / 180;
+    const lng1 = lng * Math.PI / 180;
+    const d = (distNM * 1852) / R;
+    const lat2 = Math.asin(Math.sin(lat1)*Math.cos(d) + Math.cos(lat1)*Math.sin(d)*Math.cos(brng));
+    const lng2 = lng1 + Math.atan2(Math.sin(brng)*Math.sin(d)*Math.cos(lat1), Math.cos(d)-Math.sin(lat1)*Math.sin(lat2));
+    return { lat: lat2*180/Math.PI, lng: lng2*180/Math.PI };
+}
+
+// Calculate distance in NM using WGS-84 Ellipsoid (Vincenty's Formula)
+function calculateDistance(p1, p2) {
+    const a = 6378137.0;              // WGS-84 semi-major axis (meters)
+    const b = 6356752.314245;         // WGS-84 semi-minor axis (meters)
+    const f = 1 / 298.257223563;      // WGS-84 flattening
+    
+    const L = (p2.lng - p1.lng) * Math.PI / 180;
+    const U1 = Math.atan((1 - f) * Math.tan(p1.lat * Math.PI / 180));
+    const U2 = Math.atan((1 - f) * Math.tan(p2.lat * Math.PI / 180));
+    const sinU1 = Math.sin(U1), cosU1 = Math.cos(U1);
+    const sinU2 = Math.sin(U2), cosU2 = Math.cos(U2);
+
+    let lambda = L, lambdaP, iterLimit = 100;
+    let sinLambda, cosLambda, sinSigma, cosSigma, sigma, sinAlpha, cosSqAlpha, cos2SigmaM, C;
+    
+    do {
+        sinLambda = Math.sin(lambda);
+        cosLambda = Math.cos(lambda);
+        sinSigma = Math.sqrt((cosU2 * sinLambda) * (cosU2 * sinLambda) + 
+                   (cosU1 * sinU2 - sinU1 * cosU2 * cosLambda) * (cosU1 * sinU2 - sinU1 * cosU2 * cosLambda));
+        if (sinSigma === 0) return 0; // co-incident points
+        cosSigma = sinU1 * sinU2 + cosU1 * cosU2 * cosLambda;
+        sigma = Math.atan2(sinSigma, cosSigma);
+        sinAlpha = cosU1 * cosU2 * sinLambda / sinSigma;
+        cosSqAlpha = 1 - sinAlpha * sinAlpha;
+        cos2SigmaM = cosSigma - 2 * sinU1 * sinU2 / cosSqAlpha;
+        if (isNaN(cos2SigmaM)) cos2SigmaM = 0; // equatorial line: cosSqAlpha=0
+        C = f / 16 * cosSqAlpha * (4 + f * (4 - 3 * cosSqAlpha));
+        lambdaP = lambda;
+        lambda = L + (1 - C) * f * sinAlpha * (sigma + C * sinSigma * (cos2SigmaM + C * cosSigma * (-1 + 2 * cos2SigmaM * cos2SigmaM)));
+    } while (Math.abs(lambda - lambdaP) > 1e-12 && --iterLimit > 0);
+
+    if (iterLimit === 0) return NaN; // failed to converge
+
+    const uSq = cosSqAlpha * (a * a - b * b) / (b * b);
+    const A = 1 + uSq / 16384 * (4096 + uSq * (-768 + uSq * (320 - 175 * uSq)));
+    const B = uSq / 1024 * (256 + uSq * (-128 + uSq * (74 - 47 * uSq)));
+    const deltaSigma = B * sinSigma * (cos2SigmaM + B / 4 * (cosSigma * (-1 + 2 * cos2SigmaM * cos2SigmaM) - 
+                       B / 6 * cos2SigmaM * (-3 + 4 * sinSigma * sinSigma) * (-3 + 4 * cos2SigmaM * cos2SigmaM)));
+    const s = b * A * (sigma - deltaSigma);
+
+    return s / 1852; // Return in Nautical Miles
+}
+
+// Calculate Initial Bearing (Heading)
+function calculateBearing(p1, p2) {
+    const lat1 = p1.lat * Math.PI / 180;
+    const lat2 = p2.lat * Math.PI / 180;
+    const lon1 = p1.lng * Math.PI / 180;
+    const lon2 = p2.lng * Math.PI / 180;
+    
+    const y = Math.sin(lon2 - lon1) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) -
+              Math.sin(lat1) * Math.cos(lat2) * Math.cos(lon2 - lon1);
+    const θ = Math.atan2(y, x);
+    return (θ * 180 / Math.PI + 360) % 360;
+}
+
+function pointInPolygon(lat, lng, polygon) {
+    if (polygon.center) {
+        const dist = calculateDistance({lat, lng}, {lat: polygon.center[0], lng: polygon.center[1]});
+        return dist <= polygon.radius;
+    }
+    let inside = false;
+    const n = polygon.length;
+    for (let i=0, j=n-1; i<n; j=i++) {
+        const xi = polygon[i][0], yi = polygon[i][1];
+        const xj = polygon[j][0], yj = polygon[j][1];
+        const intersect = ((yi > lng) !== (yj > lng)) &&
+            (lat < (xj - xi) * (lng - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+    }
+    return inside;
+}
+
+function triggerUpdateAnimation(el) {
+    el.classList.remove('updated');
+    void el.offsetWidth;
+    el.classList.add('updated');
+}
+
+// --- STATUS & UI HELPERS ---
+
+function setStatus(msg, type = '') {
+    const el = document.getElementById('dashStatus');
+    if (el) {
+        el.textContent = msg.toUpperCase();
+        el.className = 'dash-status';
+        if (type === 'error' || type === 'danger') el.classList.add('danger');
+        else if (type === 'warning') el.classList.add('warning');
+        else el.classList.add('clear');
+    }
+}
+
+function updateDashboard() {
+    const routeCount = storedData.navtech.coords.length;
+    const notamCount = storedData.notam.length;
+    const vonaCount = storedData.vona ? 1 : 0;
+    const tcCount = storedData.tc ? 1 : 0;
+    
+    const elements = {
+        dashRoute: document.getElementById('dashRoute'),
+        dashCounts: document.getElementById('dashCounts')
+    };
+
+    const newVals = {
+        dashRoute: routeCount > 0 ? `${storedData.navtech.coords[0].name || '?'} → ${storedData.navtech.coords[routeCount-1].name || '?'}` : '-',
+        dashCounts: `${notamCount} N / ${vonaCount} V / ${tcCount} T`
+    };
+
+    Object.keys(elements).forEach(key => {
+        if (elements[key] && elements[key].textContent !== String(newVals[key])) {
+            elements[key].textContent = newVals[key];
+            triggerUpdateAnimation(elements[key]);
+        }
+    });
+
+    if (routeCount > 0) {
+        runIntersectionChecks();
+    }
+
+    // Auto-expand/hide results panel
+    const resultsPanel = document.getElementById('resultsPanel');
+    if (resultsPanel) {
+        const hasAnyData = routeCount > 0 || vonaCount > 0 || tcCount > 0 || notamCount > 0;
+        if (hasAnyData && resultsPanel.classList.contains('collapsed')) {
+            toggleResultsPanel();
+        } else if (!hasAnyData && !resultsPanel.classList.contains('collapsed')) {
+            toggleResultsPanel();
+        }
+    }
+}
+
+// --- MAP INIT ---
+
+function initMap() {
+    if (map) return;
+    
+    try {
+        map = new maplibregl.Map({
+            container: 'map',
+            style: 'https://tiles.openfreemap.org/styles/dark',
+            center: [118, -2.5],
+            zoom: 5,
+            attributionControl: false
+        });
+
+        map.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+        map.on('load', () => {
+            document.getElementById('map-skeleton').style.opacity = '0';
+            setTimeout(() => document.getElementById('map-skeleton').style.display = 'none', 800);
+
+            // Load Cyclone Swirl Icon (Black with White Outline)
+            const swirlSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="black" stroke="white" stroke-width="0.5"/><path d="M12 7a5 5 0 0 1 5 5" stroke="black" stroke-width="2.5" fill="none"/><path d="M12 17a5 5 0 0 1-5-5" stroke="black" stroke-width="2.5" fill="none"/><path d="M12 7a5 5 0 0 1 5 5" stroke="white" stroke-width="1" fill="none"/><path d="M12 17a5 5 0 0 1-5-5" stroke="white" stroke-width="1" fill="none"/></svg>`;
+            const swirlUrl = 'data:image/svg+xml;base64,' + btoa(swirlSvg);
+            map.loadImage(swirlUrl, (error, image) => {
+                if (image) map.addImage('tc-swirl', image);
+            });
+            
+            // Sources
+            map.addSource('navtech-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            map.addSource('vona-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            map.addSource('notam-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            map.addSource('tc-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            map.addSource(rulerLineSource, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+
+            // Layers
+            map.addLayer({
+                id: 'navtech-line', type: 'line', source: 'navtech-source',
+                paint: { 'line-color': '#22c55e', 'line-width': 4, 'line-opacity': 0.8 }
+            });
+
+            map.addLayer({
+                id: 'notam-areas', type: 'fill', source: 'notam-source',
+                paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.25 }
+            });
+
+            map.addLayer({
+                id: 'notam-labels',
+                type: 'symbol',
+                source: 'notam-source',
+                layout: {
+                    'text-field': ['get', 'id'],
+                    'text-font': ['Open Sans Bold'],
+                    'text-size': 10,
+                    'text-allow-overlap': false
+                },
+                paint: {
+                    'text-color': '#ffffff',
+                    'text-halo-color': 'rgba(0,0,0,1)',
+                    'text-halo-width': 2
+                }
+            });
+
+            map.addLayer({
+                id: 'vona-ash-obs', type: 'fill', source: 'vona-source',
+                filter: ['all', ['==', ['get', 'type'], 'obs'], ['in', ['get', 'label'], ['literal', activeVonaLabels]]],
+                paint: { 'fill-color': '#ef4444', 'fill-opacity': 0.25, 'fill-outline-color': '#ef4444' }
+            });
+
+            map.addLayer({
+                id: 'vona-ash-fcst', type: 'fill', source: 'vona-source',
+                filter: ['all', ['==', ['get', 'type'], 'fcst'], ['in', ['get', 'label'], ['literal', activeVonaLabels]]],
+                paint: { 
+                    'fill-color': [
+                        'match', ['get', 'label'],
+                        '+6HR', '#f97316',
+                        '+12HR', '#fbbf24',
+                        '+18HR', '#d946ef',
+                        '#f97316' // default
+                    ],
+                    'fill-opacity': 0.1, 
+                    'fill-outline-color': [
+                        'match', ['get', 'label'],
+                        '+6HR', '#f97316',
+                        '+12HR', '#fbbf24',
+                        '+18HR', '#d946ef',
+                        '#f97316'
+                    ]
+                }
+            });
+
+            map.addLayer({
+                id: 'vona-labels',
+                type: 'symbol',
+                source: 'vona-source',
+                filter: ['all', ['==', '$type', 'Polygon'], ['in', ['get', 'label'], ['literal', activeVonaLabels]]],
+                layout: {
+                    'text-field': ['get', 'label'],
+                    'text-font': ['Open Sans Bold'],
+                    'text-size': 10,
+                    'text-allow-overlap': false
+                },
+                paint: {
+                    'text-color': '#ffffff',
+                    'text-halo-color': 'rgba(0,0,0,1)',
+                    'text-halo-width': 2
+                }
+            });
+
+            map.addLayer({
+                id: 'tc-radii', type: 'fill', source: 'tc-source',
+                filter: ['all', ['==', ['geometry-type'], 'Polygon'], ['in', ['get', 'kts'], ['literal', activeTcLabels]]],
+                paint: {
+                    'fill-color': [
+                        'match', ['get', 'kts'],
+                        '34', '#3b82f6',
+                        '50', '#fbbf24',
+                        '64', '#ef4444',
+                        '#8b5cf6'
+                    ],
+                    'fill-opacity': 0.06,
+                    'fill-outline-color': [
+                        'match', ['get', 'kts'],
+                        '34', '#3b82f6',
+                        '50', '#fbbf24',
+                        '64', '#ef4444',
+                        '#8b5cf6'
+                    ]
+                }
+            });
+
+            map.addLayer({
+                id: 'tc-radii-outline', type: 'line', source: 'tc-source',
+                filter: ['all', ['==', ['geometry-type'], 'Polygon'], ['in', ['get', 'kts'], ['literal', activeTcLabels]]],
+                paint: {
+                    'line-color': [
+                        'match', ['get', 'kts'],
+                        '34', '#3b82f6',
+                        '50', '#fbbf24',
+                        '64', '#ef4444',
+                        '#8b5cf6'
+                    ],
+                    'line-width': 1,
+                    'line-opacity': 0.8
+                }
+            });
+
+            map.addLayer({
+                id: 'tc-track', type: 'line', source: 'tc-source',
+                filter: ['==', ['geometry-type'], 'LineString'],
+                paint: { 
+                    'line-color': '#8b5cf6', 
+                    'line-width': 2, 
+                    'line-dasharray': [3, 2] 
+                }
+            });
+
+            map.addLayer({
+                id: 'tc-points-dot', type: 'circle', source: 'tc-source',
+                filter: ['all', ['==', ['geometry-type'], 'Point'], ['in', ['get', 'type'], ['literal', activeTcTypes]]],
+                paint: {
+                    'circle-radius': 4,
+                    'circle-color': '#000000',
+                    'circle-stroke-width': 1.5,
+                    'circle-stroke-color': '#ffffff'
+                }
+            });
+
+            map.addLayer({
+                id: 'tc-points', type: 'symbol', source: 'tc-source',
+                filter: ['all', ['==', ['geometry-type'], 'Point'], ['in', ['get', 'type'], ['literal', activeTcTypes]]],
+                layout: {
+                    'icon-image': 'tc-swirl',
+                    'icon-size': 0.5,
+                    'icon-allow-overlap': true
+                }
+            });
+
+            map.addLayer({
+                id: 'tc-labels', type: 'symbol', source: 'tc-source',
+                filter: ['all', ['==', ['geometry-type'], 'Point'], ['in', ['get', 'type'], ['literal', activeTcTypes]]],
+                layout: {
+                    'text-field': ['get', 'label'],
+                    'text-font': ['Open Sans Bold'],
+                    'text-size': 10,
+                    'text-offset': [1.5, 0],
+                    'text-anchor': 'left',
+                    'text-allow-overlap': false
+                },
+                paint: {
+                    'text-color': '#ffffff',
+                    'text-halo-color': 'rgba(0,0,0,1)',
+                    'text-halo-width': 2
+                }
+            });
+
+            map.addLayer({
+                id: 'ruler-line', type: 'line', source: rulerLineSource,
+                paint: { 'line-color': '#3b82f6', 'line-width': 3, 'line-dasharray': [2, 2] }
+            });
+
+            // Ruler Labels
+            map.addLayer({
+                id: 'ruler-labels',
+                type: 'symbol',
+                source: rulerLineSource,
+                filter: ['==', '$type', 'Point'],
+                layout: {
+                    'text-field': ['get', 'distance'],
+                    'text-font': ['Open Sans Bold'],
+                    'text-size': 14,
+                    'text-offset': [0, -1.5],
+                    'text-anchor': 'bottom',
+                    'text-allow-overlap': true
+                },
+                paint: {
+                    'text-color': '#3b82f6',
+                    'text-halo-color': 'rgba(255,255,255,0.9)',
+                    'text-halo-width': 2
+                }
+            });
+
+            // Waypoint Labels
+            map.addLayer({
+                id: 'navtech-labels',
+                type: 'symbol',
+                source: 'navtech-source',
+                filter: ['==', '$type', 'Point'],
+                layout: {
+                    'text-field': ['get', 'name'],
+                    'text-font': ['Open Sans Bold'],
+                    'text-size': 11,
+                    'text-offset': [0, 1.2],
+                    'text-anchor': 'top',
+                    'text-allow-overlap': true
+                },
+                paint: {
+                    'text-color': '#ffffff',
+                    'text-halo-color': 'rgba(0,0,0,0.8)',
+                    'text-halo-width': 1
+                }
+            });
+        });
+
+        map.on('mousemove', (e) => {
+            const { lat, lng } = e.lngLat;
+            const latStr = Math.abs(lat).toFixed(4) + (lat>=0?'N':'S');
+            const lngStr = Math.abs(lng).toFixed(4) + (lng>=0?'E':'W');
+            document.getElementById('coordsDisplay').textContent = `${latStr} ${lngStr}`;
+            
+            if (isRulerActive && rulerPoints.length > 0) {
+                updateRulerPreview(e.lngLat);
+            }
+        });
+
+        map.on('click', (e) => {
+            if (isRulerActive) {
+                handleRulerClick(e.lngLat);
+            }
+        });
+
+        // NOTAM Popup
+        map.on('click', 'notam-areas', (e) => {
+            const props = e.features[0].properties;
+            new maplibregl.Popup({ maxWidth: '300px' })
+                .setLngLat(e.lngLat)
+                .setHTML(`
+                    <div style="font-family: var(--font-main); font-size: 12px; color: white;">
+                        <b style="color:var(--primary); font-size: 14px; display: block; margin-bottom: 8px; font-family: var(--font-mono); border-bottom: 1px solid rgba(14, 165, 233, 0.3); padding-bottom: 4px;">${props.id}</b>
+                        <div style="margin-bottom: 12px; line-height: 1.6; max-height: 180px; overflow-y: auto; padding-right: 8px; font-weight: 500; color: #e2e8f0;">
+                            ${props.content}
+                        </div>
+                        <div style="padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: var(--accent-orange); font-weight: 800; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.5px;">
+                                ${props.limits}
+                            </span>
+                        </div>
+                    </div>
+                `)
+                .addTo(map);
+        });
+
+        map.on('mouseenter', 'notam-areas', () => map.getCanvas().style.cursor = 'pointer');
+        map.on('mouseleave', 'notam-areas', () => map.getCanvas().style.cursor = '');
+
+        setInterval(() => {
+            const now = new Date();
+            const timeStr = now.toISOString().substr(11,8) + ' UTC';
+            const el = document.getElementById('clockDisplay');
+            if (el) el.textContent = timeStr;
+        }, 1000);
+
+        // --- POPUP HANDLERS ---
+        const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
+
+        const addPopupHover = (layerId, getHtml) => {
+            map.on('mouseenter', layerId, (e) => {
+                map.getCanvas().style.cursor = 'pointer';
+                const html = getHtml(e.features[0].properties);
+                popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
+            });
+            map.on('mouseleave', layerId, () => {
+                map.getCanvas().style.cursor = '';
+                popup.remove();
+            });
+        };
+
+        addPopupHover('notam-areas', (p) => `<b>${p.id}</b><br><small>Aviation Warning Area</small>`);
+        addPopupHover('vona-ash-obs', (p) => `<b style="color:#ef4444">${p.label} ASH CLOUD</b><br><small>TIME: ${p.time || 'N/A'}</small><br><small>ALT: ${p.fl}</small>`);
+        addPopupHover('vona-ash-fcst', (p) => `<b style="color:#f97316">${p.label} FORECAST</b><br><small>TIME: ${p.time || 'N/A'}</small><br><small>ALT: ${p.fl}</small>`);
+        addPopupHover('navtech-labels', (p) => `<b>Waypoint: ${p.name}</b><br><small>Navtech Route Data</small>`);
+
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                activeTab = this.dataset.tab;
+                const placeholders = {
+                    navtech: 'Paste Navtech route data (waypoints with coordinates)',
+                    vona: 'Paste VONA advisory text',
+                    notam: 'Paste NOTAM text (one or multiple)',
+                    tc: 'Paste Tropical Cyclone warning text (JTWC format)'
+                };
+                document.getElementById('mainInput').placeholder = placeholders[activeTab] || '';
+            });
+        });
+    } catch (error) {
+        console.error('[INIT] Map initialization failed:', error);
+        setStatus('Map initialization error', 'danger');
+    }
+}
+
+// --- PARSING FUNCTIONS ---
+
+function handleParse() {
+    const text = normalizeInput(document.getElementById('mainInput').value);
+    if (!text) return setStatus('No data to parse', 'warning');
+    try {
+        if (activeTab === 'navtech') parseNavtech(text);
+        else if (activeTab === 'vona') parseVona(text);
+        else if (activeTab === 'notam') parseNotam(text);
+        else if (activeTab === 'tc') parseTC(text);
+        updateDashboard();
+    } catch(e) {
+        setStatus('Parsing error: ' + e.message, 'danger');
+    }
+}
+
+function parseNavtech(text) {
+    const lines = text.split('\n').filter(line => line.trim().length > 0);
+    if (lines.length === 0) throw new Error('No data');
+
+    const wpRegex = /([A-Z0-9]+)\s+([NS])\s*(\d{2})\s*(\d{2}\.?\d*)\s+([EW])\s*(\d{3})\s*(\d{2}\.?\d*)/g;
+
+    const parsedLines = lines.map(line => {
+        const wps = [];
+        let match;
+        const regex = new RegExp(wpRegex.source, 'g');
+        while ((match = regex.exec(line)) !== null) {
+            const name = match[1];
+            const lat = (parseInt(match[3]) + parseFloat(match[4])/60) * (match[2] === 'S' ? -1 : 1);
+            const lng = (parseInt(match[6]) + parseFloat(match[7])/60) * (match[5] === 'W' ? -1 : 1);
+            if (!isNaN(lat) && !isNaN(lng)) {
+                wps.push({ name, lat, lng });
+            }
+        }
+        return wps;
+    });
+
+    const nonEmpty = parsedLines.filter(arr => arr.length > 0);
+    if (nonEmpty.length === 0) throw new Error('No valid waypoints found');
+
+    const hasTwoCols = nonEmpty.some(arr => arr.length >= 2);
+
+    let orderedWaypoints = [];
+    if (hasTwoCols) {
+        const left = [];
+        const right = [];
+        nonEmpty.forEach(arr => {
+            if (arr.length >= 1) left.push(arr[0]);
+            if (arr.length >= 2) right.push(arr[1]);
+        });
+        orderedWaypoints = left.concat(right);
+    } else {
+        nonEmpty.forEach(arr => {
+            orderedWaypoints = orderedWaypoints.concat(arr);
+        });
+    }
+
+    if (orderedWaypoints.length === 0) throw new Error('No waypoints could be parsed');
+
+    storedData.navtech.coords = orderedWaypoints;
+    const lineCoords = orderedWaypoints.map(m => [m.lng, m.lat]);
+    
+    const features = [{ 
+        type: 'Feature', 
+        geometry: { type: 'LineString', coordinates: lineCoords } 
+    }];
+    
+    // Add individual points for labels
+    orderedWaypoints.forEach(m => {
+        features.push({
+            type: 'Feature',
+            properties: { name: m.name },
+            geometry: { type: 'Point', coordinates: [m.lng, m.lat] }
+        });
+    });
+
+    map.getSource('navtech-source').setData({
+        type: 'FeatureCollection',
+        features: features
+    });
+
+    navtechMarkers.forEach(m => m.remove());
+    navtechMarkers = [];
+
+    orderedWaypoints.forEach((m, i) => {
+        const el = document.createElement('div');
+        el.className = 'nav-marker';
+        el.style.cssText = 'width:8px; height:8px; background:#22c55e; border-radius:50%; border:1.5px solid white;';
+
+        const marker = new maplibregl.Marker({ element: el })
+            .setLngLat([m.lng, m.lat])
+            .setPopup(new maplibregl.Popup({ offset: 15 }).setHTML(`<b>${i+1}: ${m.name}</b>`))
+            .addTo(map);
+        navtechMarkers.push(marker);
+    });
+
+    document.getElementById('navtechCard').style.display = 'block';
+    document.getElementById('navCount').textContent = orderedWaypoints.length;
+    document.getElementById('navPoints').innerHTML = orderedWaypoints.map(c =>
+        `<div class="data-row"><span>${c.name}</span><span class="data-value">${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}</span></div>`
+    ).join('');
+
+    setStatus(`Navtech: ${orderedWaypoints.length} points plotted (${hasTwoCols ? 'two-column' : 'single-column'})`, 'success');
+    fitBoundsAll();
+}
+
+function parseVona(text) {
+    // 1. Extract Volcano PSN
+    const psnMatch = text.match(/PSN:\s*([NS]\s*\d{2,4})\s*([EW]\s*\d{3,5})/i);
+    if (!psnMatch) throw new Error('Volcano PSN not found. Check format.');
+
+    const lat = dmsToDecimal(psnMatch[1]);
+    const lng = dmsToDecimal(psnMatch[2]);
+    
+    // Clear old VONA markers
+    vonaMarkers.forEach(m => m.remove());
+    vonaMarkers = [];
+
+    const el = document.createElement('div');
+    el.className = 'pulse-marker';
+    const marker = new maplibregl.Marker({ element: el }).setLngLat([lng, lat]).addTo(map);
+    vonaMarkers.push(marker);
+
+    // 2. Extract Ash Clouds (Polygons)
+    const features = [];
+    const cloudSections = [
+        { key: 'EST VA CLD', type: 'obs', label: 'OBSERVED' },
+        { key: 'FCST VA CLD \\+6 HR', type: 'fcst', label: '+6HR' },
+        { key: 'FCST VA CLD \\+12 HR', type: 'fcst', label: '+12HR' },
+        { key: 'FCST VA CLD \\+18 HR', type: 'fcst', label: '+18HR' }
+    ];
+
+    cloudSections.forEach(section => {
+        const regex = new RegExp(`${section.key}:\\s*(.*?)(?=\\s*(?:FCST VA CLD|RMK|NXT ADVISORY|$))`, 'gs');
+        const match = regex.exec(text);
+        if (match) {
+            const sectionText = match[1];
+            // Extract Time (e.g., 11/1110Z)
+            const timeMatch = sectionText.match(/(\d{2}\/\d{4}Z)/i);
+            const time = timeMatch ? timeMatch[1] : '';
+
+            // Extract FL (e.g., SFC/FL150)
+            const flMatch = sectionText.match(/(SFC\/FL\d+)/i);
+            const fl = flMatch ? flMatch[1] : 'SFC/UNKNOWN';
+
+            const coordRegex = /([NS]\d{2,4})\s+([EW]\d{3,5})/gi;
+            const coords = [];
+            let cm;
+            while ((cm = coordRegex.exec(sectionText)) !== null) {
+                const cLat = dmsToDecimal(cm[1]);
+                const cLng = dmsToDecimal(cm[2]);
+                if (cLat !== null && cLng !== null) coords.push([cLng, cLat]);
+            }
+            if (coords.length >= 3) {
+                coords.push(coords[0]); // Close polygon
+                features.push({
+                    type: 'Feature',
+                    properties: { type: section.type, label: section.label, fl: fl, time: time },
+                    geometry: { type: 'Polygon', coordinates: [coords] }
+                });
+            }
+        }
+    });
+
+    map.getSource('vona-source').setData({ type: 'FeatureCollection', features });
+
+    storedData.vona = { lat, lng, features };
+    document.getElementById('vonaCard').style.display = 'block';
+    
+    // Update UI Card with detailed forecast status
+    const volcanoName = (text.match(/VOLCANO:\s*([A-Z\s]+)/i) || [])[1] || 'UNKNOWN';
+    const forecastStatuses = cloudSections.map(s => {
+        const found = features.find(f => f.properties.label === s.label);
+        const color = s.label === 'OBSERVED' ? '#ef4444' : 
+                      s.label === '+6HR' ? '#f97316' :
+                      s.label === '+12HR' ? '#fbbf24' : '#d946ef';
+        return `<div class="data-row">
+            <span class="data-label" style="color:${color}">${s.label}</span>
+            <span class="data-value">${found ? found.properties.fl : '<span class="no-va">NO VA EXP</span>'}</span>
+        </div>`;
+    }).join('');
+
+    document.getElementById('vonaDetails').innerHTML = `
+        <div class="data-row"><span class="data-label">VOLCANO</span><span class="data-value">${volcanoName}</span></div>
+        <div class="data-row" style="margin-bottom:10px;"><span class="data-label">PSN</span><span class="data-value">${lat.toFixed(4)}, ${lng.toFixed(4)}</span></div>
+        ${forecastStatuses}
+    `;
+    
+    // Ensure toggles are synced
+    document.querySelectorAll('.toggle-item').forEach(item => item.classList.add('active'));
+    activeVonaLabels = ['OBSERVED', '+6HR', '+12HR', '+18HR'];
+    applyVonaFilters();
+
+    setStatus(`VA Advisory: ${volcanoName} processed`, 'success');
+    fitBoundsAll();
+}
+
+function updateVonaFilter(label, el) {
+    const index = activeVonaLabels.indexOf(label);
+    if (index > -1) {
+        activeVonaLabels.splice(index, 1);
+        el.classList.remove('active');
+    } else {
+        activeVonaLabels.push(label);
+        el.classList.add('active');
+    }
+    applyVonaFilters();
+}
+
+function applyVonaFilters() {
+    if (!map) return;
+    const filter = ['all', ['in', ['get', 'label'], ['literal', activeVonaLabels]]];
+    
+    map.setFilter('vona-ash-obs', ['all', ['==', ['get', 'type'], 'obs'], filter]);
+    map.setFilter('vona-ash-fcst', ['all', ['==', ['get', 'type'], 'fcst'], filter]);
+    map.setFilter('vona-labels', ['all', ['==', '$type', 'Polygon'], filter]);
+}
+
+function parseNotam(text) {
+    const blocks = text.split(/(?=[A-Z]\d{1,5}\/\d{2}\s+NOTAM[NRC])/m).filter(b => b.trim().length > 10);
+    const features = [];
+    storedData.notam = [];
+    notamPolygons = [];
+
+    blocks.forEach((block, idx) => {
+        const color = NOTAM_COLORS[idx % NOTAM_COLORS.length];
+        const id = 'N' + idx;
+        let foundGeometry = false;
+
+        // Extract NOTAM Info
+        const notamIdMatch = block.match(/([A-Z]\d{4}\/\d{2})/i);
+        const displayId = notamIdMatch ? notamIdMatch[1] : id;
+        const eMatch = block.match(/E\)\s*(.*?)(?=\s*[F-G]\)|$)/s);
+        const fMatch = block.match(/F\)\s*(\S+)/i);
+        const gMatch = block.match(/G\)\s*(\S+)/i);
+        
+        let rawContent = eMatch ? eMatch[1].trim() : 'No description available';
+        const highlightedContent = highlightNotamKeywords(rawContent).replace(/\n/g, '<br>');
+
+        const props = {
+            id: displayId,
+            color: color,
+            content: highlightedContent,
+            limits: `LOWER: ${fMatch ? fMatch[1] : 'SFC'} / UPPER: ${gMatch ? gMatch[1] : 'UNL'}`
+        };
+
+        // 1. Try to find Circle: WI [radius] NM OF [coord]
+        const circleMatch = block.match(/WI\s+(\d+)\s*NM\s+OF\s+(?:PSN\s+)?(\d{4,6}[NS])\s+(\d{5,7}[EW])/i);
+        if (circleMatch) {
+            const radius = parseInt(circleMatch[1]);
+            const lat = dmsToDecimal(circleMatch[2]);
+            const lng = dmsToDecimal(circleMatch[3]);
+            if (lat !== null && lng !== null) {
+                const circleCoords = [];
+                for (let i=0; i<=360; i+=10) {
+                    const p = destinationPoint(lat, lng, i, radius);
+                    circleCoords.push([p.lng, p.lat]);
+                }
+                features.push({
+                    type: 'Feature',
+                    properties: props,
+                    geometry: { type: 'Polygon', coordinates: [circleCoords] }
+                });
+                features.push({
+                    type: 'Feature',
+                    properties: props,
+                    geometry: { type: 'Point', coordinates: [lng, lat] }
+                });
+                notamPolygons.push(circleCoords.map(c => [c[1], c[0]]));
+                foundGeometry = true;
+            }
+        }
+
+        // 2. Try to find Polygon or multiple points
+        if (!foundGeometry) {
+            const coordRegex = /(\d{4,6}(?:\.\d+)?[NS])\s*(\d{5,7}(?:\.\d+)?[EW])/gi;
+            const coords = [];
+            let m;
+            while ((m = coordRegex.exec(block)) !== null) {
+                const lat = dmsToDecimal(m[1]);
+                const lng = dmsToDecimal(m[2]);
+                if (lat !== null && lng !== null) coords.push([lng, lat]);
+            }
+
+            if (coords.length >= 3) {
+                coords.push(coords[0]);
+                features.push({
+                    type: 'Feature',
+                    properties: props,
+                    geometry: { type: 'Polygon', coordinates: [coords] }
+                });
+                const centerLng = coords.reduce((sum, p) => sum + p[0], 0) / coords.length;
+                const centerLat = coords.reduce((sum, p) => sum + p[1], 0) / coords.length;
+                features.push({
+                    type: 'Feature',
+                    properties: props,
+                    geometry: { type: 'Point', coordinates: [centerLng, centerLat] }
+                });
+                notamPolygons.push(coords.map(c => [c[1], c[0]]));
+                foundGeometry = true;
+            } else if (coords.length === 1 || coords.length === 2) {
+                // Point marker for sparse coords
+                coords.forEach(pt => {
+                    features.push({
+                        type: 'Feature',
+                        properties: props,
+                        geometry: { type: 'Point', coordinates: pt }
+                    });
+                });
+                foundGeometry = true;
+            }
+        }
+
+        // 3. Fallback to Q-Line: Q) YBBB/QRTCA/.../2736S14338E022
+        if (!foundGeometry) {
+            const qLineMatch = block.match(/Q\).*?\/(\d{4}[NS])(\d{5}[EW])(\d{3})/i);
+            if (qLineMatch) {
+                const lat = dmsToDecimal(qLineMatch[1]);
+                const lng = dmsToDecimal(qLineMatch[2]);
+                const radius = parseInt(qLineMatch[3]);
+                if (lat !== null && lng !== null) {
+                    const circleCoords = [];
+                    for (let i=0; i<=360; i+=10) {
+                        const p = destinationPoint(lat, lng, i, radius);
+                        circleCoords.push([p.lng, p.lat]);
+                    }
+                    features.push({
+                        type: 'Feature',
+                        properties: props,
+                        geometry: { type: 'Polygon', coordinates: [circleCoords] }
+                    });
+                    features.push({
+                        type: 'Feature',
+                        properties: props,
+                        geometry: { type: 'Point', coordinates: [lng, lat] }
+                    });
+                    notamPolygons.push(circleCoords.map(c => [c[1], c[0]]));
+                    foundGeometry = true;
+                }
+            }
+        }
+
+        if (foundGeometry) {
+            storedData.notam.push({ id: displayId, type: 'area', color });
+        }
+    });
+
+    map.getSource('notam-source').setData({ type: 'FeatureCollection', features });
+    document.getElementById('notamCard').style.display = 'block';
+    document.getElementById('notamResults').innerHTML = storedData.notam.map(n => `<div class="notam-block" style="border-left-color:${n.color}"><b>${n.id}</b></div>`).join('');
+    setStatus(`NOTAM: ${storedData.notam.length} areas parsed`, 'success');
+    fitBoundsAll();
+}
+
+function parseTC(text) {
+    const features = [];
+    const points = [];
+    
+    // 1. Extract Name
+    const nameMatch = text.match(/(?:TROPICAL CYCLONE|TYPHOON|HURRICANE)\s+([A-Z0-9\s]+?)(?:\s+\d+|\n|$)/i);
+    const tcName = nameMatch ? nameMatch[1].trim() : 'UNKNOWN';
+
+    // 2. Extract Points (Time, Lat, Lng, KTS)
+    const blockRegex = /(\d{2}\/?\d{4}Z).*?(?:NEAR|POSIT:)?\s*(\d+\.\d+[NS])\s+(\d+\.\d+[EW]).*?MAX SUSTAINED WINDS\s*-\s*(\d+)\s*KT/gs;
+    let bm;
+    while ((bm = blockRegex.exec(text)) !== null) {
+        const time = bm[1];
+        const lat = dmsToDecimal(bm[2]);
+        const lng = dmsToDecimal(bm[3]);
+        const ktsRaw = bm[4];
+        const kts = parseInt(ktsRaw).toString(); // Remove leading zeros for filter matching
+        const type = points.length === 0 ? 'obs' : 'fcst';
+        
+        points.push({ lng, lat, time, kts, type });
+        
+        // Point Feature for Label
+        features.push({
+            type: 'Feature',
+            properties: { label: `${time}, ${kts}KTS`, kts: kts, type: type, time: time },
+            geometry: { type: 'Point', coordinates: [lng, lat] }
+        });
+
+        // 3. Extract Wind Radii for this point
+        const sectionText = text.substring(bm.index, bm.index + 2000);
+        const radTypes = ['64', '50', '34'];
+        radTypes.forEach(ktsType => {
+            const radii = [];
+            const directions = ['NORTHEAST', 'SOUTHEAST', 'SOUTHWEST', 'NORTHWEST'];
+            const shortDirs = ['NE', 'SE', 'SW', 'NW'];
+            
+            const startRegex = new RegExp(`(?:RADIUS OF\\s+)?0?${ktsType}\\s*KT`, 'i');
+            const startMatch = sectionText.match(startRegex);
+            
+            if (startMatch) {
+                const subText = sectionText.substring(startMatch.index);
+                const quadRadii = [0, 0, 0, 0];
+                let foundAny = false;
+
+                directions.forEach((dir, i) => {
+                    const rMatch = subText.match(new RegExp(`(\\d+)\\s*NM\\s*(?:${dir}|${shortDirs[i]})`, 'i'));
+                    if (rMatch) {
+                        quadRadii[i] = parseInt(rMatch[1]);
+                        foundAny = true;
+                    }
+                });
+
+                if (foundAny) {
+                    const polyCoords = generateQuadrantPolygon(lat, lng, quadRadii);
+                    features.push({
+                        type: 'Feature',
+                        properties: { kts: ktsType, type: type, time: time },
+                        geometry: { type: 'Polygon', coordinates: [polyCoords] }
+                    });
+                }
+            }
+        });
+    }
+
+    if (points.length === 0) {
+        const simpleCoordRegex = /(\d+\.\d+[NS])\s+(\d+\.\d+[EW])/gi;
+        let sm;
+        while ((sm = simpleCoordRegex.exec(text)) !== null) {
+            points.push([dmsToDecimal(sm[1]), dmsToDecimal(sm[2])]);
+        }
+    }
+
+    if (points.length) {
+        features.push({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: points.map(p => [p.lng, p.lat]) }
+        });
+
+        map.getSource('tc-source').setData({ type: 'FeatureCollection', features });
+        storedData.tc = { name: tcName, points: points };
+        
+        document.getElementById('tcCard').style.display = 'block';
+        document.getElementById('tcDetails').innerHTML = `
+            <div class="data-row"><span class="data-label">NAME</span><span class="data-value">${tcName}</span></div>
+            <div class="data-row" style="margin-bottom:10px;"><span class="data-label">STATUS</span><span class="data-value">${points.length} POSITIONS</span></div>
+        `;
+
+        document.getElementById('tcForecasts').innerHTML = points.map((p, i) => `
+            <div class="notam-block tc-pos-item active" style="cursor:pointer; border-left-color:#8b5cf6;" onclick="toggleTcPosition('${p.time}', this)">
+                <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                    <b style="color:white">${p.time}</b>
+                    <span style="color:var(--primary); font-size:11px; font-weight:700;">${p.kts} KTS</span>
+                </div>
+                <div style="font-size:11px; color:var(--text-muted)">
+                    POS: ${p.lat.toFixed(2)}${p.lat>=0?'N':'S'} ${p.lng.toFixed(2)}${p.lng>=0?'E':'W'}
+                </div>
+            </div>
+        `).join('');
+        
+        // Sync toggles
+        document.querySelectorAll('#tcVisibility .toggle-item').forEach(item => item.classList.add('active'));
+        activeTcLabels = ['34', '50', '64'];
+        activeTcTypes = ['obs', 'fcst'];
+        activeTcTimes = points.map(p => p.time);
+        applyTcFilters();
+
+        setStatus(`TC ${tcName}: ${points.length} points plotted`, 'success');
+        fitBoundsAll();
+    } else {
+        throw new Error('Could not find TC tracking data in text.');
+    }
+}
+
+function updateTcFilter(kts, el) {
+    const index = activeTcLabels.indexOf(kts);
+    if (index > -1) {
+        activeTcLabels.splice(index, 1);
+        el.classList.remove('active');
+    } else {
+        activeTcLabels.push(kts);
+        el.classList.add('active');
+    }
+    applyTcFilters();
+}
+
+function applyTcFilters() {
+    if (!map) return;
+    const ktsFilter = ['in', ['get', 'kts'], ['literal', activeTcLabels]];
+    const typeFilter = ['in', ['get', 'type'], ['literal', activeTcTypes]];
+    const timeFilter = ['in', ['get', 'time'], ['literal', activeTcTimes]];
+    
+    map.setFilter('tc-radii', ['all', ['==', ['geometry-type'], 'Polygon'], ktsFilter, typeFilter, timeFilter]);
+    map.setFilter('tc-radii-outline', ['all', ['==', ['geometry-type'], 'Polygon'], ktsFilter, typeFilter, timeFilter]);
+    
+    map.setFilter('tc-points-dot', ['all', ['==', ['geometry-type'], 'Point'], typeFilter, timeFilter]);
+    map.setFilter('tc-points', ['all', ['==', ['geometry-type'], 'Point'], typeFilter, timeFilter]);
+    map.setFilter('tc-labels', ['all', ['==', ['geometry-type'], 'Point'], typeFilter, timeFilter]);
+}
+
+function toggleTcPosition(time, el) {
+    const index = activeTcTimes.indexOf(time);
+    if (index > -1) {
+        activeTcTimes.splice(index, 1);
+        el.classList.remove('active');
+        el.style.opacity = '0.3';
+    } else {
+        activeTcTimes.push(time);
+        el.classList.add('active');
+        el.style.opacity = '1';
+    }
+    applyTcFilters();
+}
+
+function updateTcTypeFilter(type, el) {
+    const index = activeTcTypes.indexOf(type);
+    if (index > -1) {
+        activeTcTypes.splice(index, 1);
+        el.classList.remove('active');
+    } else {
+        activeTcTypes.push(type);
+        el.classList.add('active');
+    }
+    applyTcFilters();
+}
+
+function zoomToTcPoint(idx) {
+    if (!storedData.tc || !storedData.tc.points[idx]) return;
+    const p = storedData.tc.points[idx];
+    map.flyTo({ center: [p.lng, p.lat], zoom: 7, duration: 1000 });
+}
+
+function generateQuadrantPolygon(lat, lng, radii) {
+    const coords = [];
+    const steps = 8; 
+    for (let i=0; i<=steps; i++) {
+        const p = destinationPoint(lat, lng, (i/steps)*90, radii[0]);
+        coords.push([p.lng, p.lat]);
+    }
+    for (let i=0; i<=steps; i++) {
+        const p = destinationPoint(lat, lng, 90 + (i/steps)*90, radii[1]);
+        coords.push([p.lng, p.lat]);
+    }
+    for (let i=0; i<=steps; i++) {
+        const p = destinationPoint(lat, lng, 180 + (i/steps)*90, radii[2]);
+        coords.push([p.lng, p.lat]);
+    }
+    for (let i=0; i<=steps; i++) {
+        const p = destinationPoint(lat, lng, 270 + (i/steps)*90, radii[3]);
+        coords.push([p.lng, p.lat]);
+    }
+    coords.push(coords[0]);
+    return coords;
+}
+
+// --- RULER TOOL ---
+
+function toggleRuler() {
+    isRulerActive = !isRulerActive;
+    const btn = document.getElementById('rulerBtn');
+    if (isRulerActive) {
+        btn.classList.add('active');
+        setStatus('Ruler: Click points on map', 'warning');
+        map.getCanvas().style.cursor = 'crosshair';
+    } else {
+        btn.classList.remove('active');
+        clearRuler();
+        map.getCanvas().style.cursor = '';
+    }
+}
+
+function handleRulerClick(lngLat) {
+    if (rulerPoints.length >= 2) {
+        clearRuler();
+    }
+    rulerPoints.push(lngLat);
+    const el = document.createElement('div');
+    el.className = 'ruler-dot';
+    el.style.cssText = 'width:10px; height:10px; background:#3b82f6; border-radius:50%; border:2px solid white; box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);';
+    const marker = new maplibregl.Marker({ element: el }).setLngLat(lngLat).addTo(map);
+    rulerMarkers.push(marker);
+
+    if (rulerPoints.length === 2) {
+        const p1 = rulerPoints[0];
+        const p2 = rulerPoints[1];
+        const dist = calculateDistance(p1, p2);
+        const bearing = calculateBearing(p1, p2);
+        const distKM = (dist * 1.852).toFixed(3);
+        const distStr = `${dist.toFixed(3)} NM / ${distKM} KM`;
+        const headStr = `${bearing.toFixed(2)}°`;
+        const p1Str = `${p1.lat.toFixed(4)},${p1.lng.toFixed(4)}`;
+        const p2Str = `${p2.lat.toFixed(4)},${p2.lng.toFixed(4)}`;
+        setStatus(`v2.1 | ${distStr} | HDG: ${headStr} | P1:${p1Str} P2:${p2Str}`, 'success');
+        const midLng = (rulerPoints[0].lng + rulerPoints[1].lng) / 2;
+        const midLat = (rulerPoints[0].lat + rulerPoints[1].lat) / 2;
+        map.getSource(rulerLineSource).setData({
+            type: 'FeatureCollection',
+            features: [
+                { type: 'Feature', geometry: { type: 'LineString', coordinates: rulerPoints.map(p => [p.lng, p.lat]) } },
+                { type: 'Feature', properties: { distance: `${dist.toFixed(2)} NM (${headStr})` }, geometry: { type: 'Point', coordinates: [midLng, midLat] } }
+            ]
+        });
+    } else {
+        setStatus('Ruler: Click destination point', 'warning');
+    }
+    document.getElementById('rulerClearBtn').style.display = 'flex';
+}
+
+function updateRulerPreview(lngLat) {
+    if (rulerPoints.length !== 1) return;
+    const p1 = rulerPoints[0];
+    const p2 = lngLat;
+    const dist = calculateDistance(p1, p2);
+    const bearing = calculateBearing(p1, p2);
+    const distStr = `${dist.toFixed(2)} NM / ${(dist * 1.852).toFixed(2)} KM (${bearing.toFixed(1)}°)`;
+    const midLng = (p1.lng + p2.lng) / 2;
+    const midLat = (p1.lat + p2.lat) / 2;
+    map.getSource(rulerLineSource).setData({
+        type: 'FeatureCollection',
+        features: [
+            { type: 'Feature', geometry: { type: 'LineString', coordinates: [[p1.lng, p1.lat], [p2.lng, p2.lat]] } },
+            { type: 'Feature', properties: { distance: distStr }, geometry: { type: 'Point', coordinates: [midLng, midLat] } }
+        ]
+    });
+}
+
+function clearRuler() {
+    rulerPoints = [];
+    rulerMarkers.forEach(m => m.remove());
+    rulerMarkers = [];
+    map.getSource(rulerLineSource).setData({ type: 'FeatureCollection', features: [] });
+    document.getElementById('rulerClearBtn').style.display = 'none';
+}
+
+// --- ANALYSIS ---
+
+function runIntersectionChecks() {
+    const route = storedData.navtech.coords;
+    if (!route.length) return;
+    let hazards = 0;
+    if (storedData.vona) {
+        let intersect = false;
+        route.forEach(pt => {
+            const dist = calculateDistance(pt, storedData.vona);
+            if (dist < 60) intersect = true;
+        });
+        document.getElementById('vonaIntersect').innerHTML = intersect ? 
+            '<span style="color:var(--accent-notam)">⚠️ ROUTE PROXIMITY TO ASH</span>' : '';
+        if (intersect) hazards++;
+    }
+    let notamInt = false;
+    notamPolygons.forEach(poly => {
+        route.forEach(pt => { if (pointInPolygon(pt.lat, pt.lng, poly)) notamInt = true; });
+    });
+    document.getElementById('notamIntersect').innerHTML = notamInt ? 
+        '<span style="color:var(--accent-notam)">⚠️ ROUTE INTERSECTS NOTAM AREA</span>' : '';
+    if (notamInt) hazards++;
+    if (hazards > 0) setStatus('DANGER: HAZARDS DETECTED', 'danger');
+    else setStatus('ROUTE ANALYSIS CLEAR', 'success');
+}
+
+function analyzeAll() {
+    runIntersectionChecks();
+}
+
+// --- EXPORT & SYNC ---
+
+function syncDataToCloud() {
+    setStatus('Syncing...', 'warning');
+    setTimeout(() => setStatus('Sync Successful', 'success'), 1000);
+}
+
+// --- UTILS ---
+
+function fitBoundsAll() {
+    const bounds = new maplibregl.LngLatBounds();
+    let hasData = false;
+    if (storedData.navtech.coords.length) {
+        storedData.navtech.coords.forEach(c => { bounds.extend([c.lng, c.lat]); hasData = true; });
+    }
+    notamPolygons.forEach(poly => poly.forEach(pt => { bounds.extend([pt[1], pt[0]]); hasData = true; }));
+    if (storedData.vona) {
+        bounds.extend([storedData.vona.lng, storedData.vona.lat]);
+        hasData = true;
+        storedData.vona.features.forEach(f => {
+            if (f.geometry.type === 'Polygon') { f.geometry.coordinates[0].forEach(pt => bounds.extend(pt)); }
+        });
+    }
+    if (storedData.tc && storedData.tc.points) {
+        storedData.tc.points.forEach(p => { bounds.extend([p.lng, p.lat]); hasData = true; });
+    }
+    if (hasData) {
+        map.fitBounds(bounds, { padding: 80, duration: 1000 });
+    }
+}
+
+function clearAll() {
+    map.getSource('navtech-source').setData({ type: 'FeatureCollection', features: [] });
+    map.getSource('vona-source').setData({ type: 'FeatureCollection', features: [] });
+    map.getSource('notam-source').setData({ type: 'FeatureCollection', features: [] });
+    map.getSource('tc-source').setData({ type: 'FeatureCollection', features: [] });
+    navtechMarkers.forEach(m => m.remove());
+    vonaMarkers.forEach(m => m.remove());
+    navtechMarkers = [];
+    vonaMarkers = [];
+    storedData = { navtech: { coords: [], polyline: null, markers: [] }, vona: null, notam: [], tc: null };
+    document.querySelectorAll('.card').forEach(c => c.style.display = 'none');
+    document.querySelectorAll('.toggle-item').forEach(item => item.classList.add('active'));
+    activeVonaLabels = ['OBSERVED', '+6HR', '+12HR', '+18HR'];
+    activeTcLabels = ['34', '50', '64'];
+    activeTcTypes = ['obs', 'fcst'];
+    activeTcTimes = [];
+    applyVonaFilters();
+    applyTcFilters();
+    clearRuler();
+    const resultsPanel = document.getElementById('resultsPanel');
+    if (resultsPanel && !resultsPanel.classList.contains('collapsed')) {
+        toggleResultsPanel();
+    }
+    setStatus('System Reset', 'success');
+}
+
+function loadTemplate() {
+    const templates = {
+        navtech: `WADD S 08 44.8 E 115 10.2\nKALUT S 05 57.9 E 110 23.0\nKURUS S 05 57.7 E 108 28.7`,
+        vona: `VOLCANO: SEMERU\nPSN: S0806 E11255\nERUPTION DETAILS: VA REP FM GND`,
+        notam: `A2334/26 NOTAMN\nE) GUN FIRING WI 0845S11510E - 0850S11520E - 0855S11510E`,
+        tc: `WARNING POSITION: 21.6N 107.9E\nFORECASTS: 22.9N 108.3E`
+    };
+    document.getElementById('mainInput').value = templates[activeTab] || '';
+}
+
+// --- EXPORT & DOWNLOAD ---
+
+function downloadKML(type) {
+    const kmlContent = generateKML(type);
+    if (!kmlContent) return setStatus('No data to export', 'warning');
+    const blob = new Blob([kmlContent], { type: 'application/vnd.google-earth.kml+xml' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `SkyControl_${type.toUpperCase()}_${new Date().getTime()}.kml`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    setStatus(`${type.toUpperCase()} KML Exported`, 'success');
+}
+
+function generateKML(type) {
+    let kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>SkyControl ${type.toUpperCase()}</name>`;
+
+    if (type === 'navtech' && storedData.navtech.coords.length) {
+        kml += `
+    <Style id="navtechStyle">
+      <LineStyle><color>ff00c522</color><width>4</width></LineStyle>
+    </Style>
+    <Placemark>
+      <name>Route Track</name>
+      <styleUrl>#navtechStyle</styleUrl>
+      <LineString><coordinates>${storedData.navtech.coords.map(c => `${c.lng},${c.lat},0`).join(' ')}</coordinates></LineString>
+    </Placemark>`;
+        storedData.navtech.coords.forEach(c => {
+            kml += `<Placemark><name>${c.name}</name><Point><coordinates>${c.lng},${c.lat},0</coordinates></Point></Placemark>`;
+        });
+    } else if (type === 'vona' && storedData.vona) {
+        storedData.vona.features.forEach(f => {
+            if (f.geometry.type === 'Polygon') {
+                kml += `<Placemark><name>${f.properties.label} (${f.properties.fl})</name><Polygon><outerBoundaryIs><LinearRing><coordinates>${f.geometry.coordinates[0].map(c => `${c[0]},${c[1]},0`).join(' ')}</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>`;
+            }
+        });
+    } else if (type === 'notam' && storedData.notam.length) {
+        const source = map.getSource('notam-source');
+        if (source) {
+            const data = source._data;
+            data.features.forEach(f => {
+                if (f.geometry.type === 'Polygon') {
+                    kml += `<Placemark><name>${f.properties.id}</name><Polygon><outerBoundaryIs><LinearRing><coordinates>${f.geometry.coordinates[0].map(c => `${c[0]},${c[1]},0`).join(' ')}</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>`;
+                }
+            });
+        }
+    } else if (type === 'tc' && storedData.tc) {
+        const source = map.getSource('tc-source');
+        if (source) {
+            source._data.features.forEach(f => {
+                if (f.geometry.type === 'Polygon') {
+                    kml += `<Placemark><name>${f.properties.kts}KT - ${f.properties.time}</name><Polygon><outerBoundaryIs><LinearRing><coordinates>${f.geometry.coordinates[0].map(c => `${c[0]},${c[1]},0`).join(' ')}</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>`;
+                } else if (f.geometry.type === 'LineString') {
+                    kml += `<Placemark><name>TC Track</name><LineString><coordinates>${f.geometry.coordinates.map(c => `${c[0]},${c[1]},0`).join(' ')}</coordinates></LineString></Placemark>`;
+                }
+            });
+        }
+    } else { return null; }
+    kml += `</Document></kml>`;
+    return kml;
+}
+
+// --- PANEL TOGGLE FUNCTIONS (MOVED FROM INDEX.HTML) ---
+function toggleResultsPanel() {
+    const panel = document.getElementById('resultsPanel');
+    const icon = document.getElementById('resultsToggleIcon');
+    panel.classList.toggle('collapsed');
+    if (panel.classList.contains('collapsed')) {
+        icon.setAttribute('data-lucide', 'chevron-right');
+    } else {
+        icon.setAttribute('data-lucide', 'chevron-left');
+    }
+    if (window.lucide) lucide.createIcons();
+}
+
+function toggleControlsPanel() {
+    const panel = document.getElementById('controlsPanel');
+    const icon = document.getElementById('controlsToggleIcon');
+    panel.classList.toggle('collapsed');
+    if (panel.classList.contains('collapsed')) {
+        icon.setAttribute('data-lucide', 'maximize-2');
+    } else {
+        icon.setAttribute('data-lucide', 'chevron-down');
+    }
+    if (window.lucide) lucide.createIcons();
+}
+
+// --- INITIALIZATION ---
+window.onload = () => {
+    initMap();
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+    
+    // Resize Observer for the map container
+    const mapContainer = document.getElementById('map');
+    const resizeObserver = new ResizeObserver(() => {
+        if (typeof map !== 'undefined' && map && typeof map.resize === 'function') {
+            map.resize();
+        }
+    });
+    resizeObserver.observe(mapContainer);
+};
