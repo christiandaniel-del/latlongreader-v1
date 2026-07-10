@@ -545,7 +545,7 @@
     </style>
 </head>
 <body>
-<div class="app-shell">
+<div class="app-shell" id="appShell" style="display:none;">
     <header>
         <div class="header-brand">
             <i data-lucide="plane" style="color: var(--primary); width: 18px;"></i>
@@ -701,14 +701,20 @@
 <!-- Main App Script -->
 <script src="app.js"></script>
 <script>
-    // Initialize Lucide Icons
-    lucide.createIcons();
-    
-    // Mutation Observer to handle dynamic content (cards, lists)
-    const observer = new MutationObserver(() => {
+    // Show app shell once everything is ready
+    function showApp() {
+        const appShell = document.getElementById('appShell');
+        if (appShell) {
+            appShell.style.display = 'grid';
+        }
         lucide.createIcons();
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
+        if (typeof map !== 'undefined' && map) {
+            setTimeout(() => { map.invalidateSize(); }, 100);
+        }
+    }
+    
+    // Try to show app after a short delay to ensure all scripts are loaded
+    setTimeout(showApp, 500);
 </script>
 </body>
 </html>
