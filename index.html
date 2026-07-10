@@ -153,13 +153,18 @@
             background: var(--bg-surface);
             border: 1px solid var(--border);
             border-radius: 16px;
-            padding: 20px;
+            padding: 16px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            box-shadow: var(--shadow-xl);
+            position: relative;
+        }
+        .dash-row {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 16px;
-            box-shadow: var(--shadow-xl);
-            position: relative;
-            overflow: hidden;
+            width: 100%;
         }
         .dashboard::before {
             content: '';
@@ -192,13 +197,10 @@
             100% { transform: scale(1); color: var(--text-main); }
         }
         .dash-status-container {
-            grid-column: span 2;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding-bottom: 8px;
-            margin-bottom: 4px;
-            border-bottom: 1px solid var(--border);
+            width: 100%;
         }
         .dash-status {
             font-weight: 700;
@@ -567,7 +569,7 @@
         <div class="sidebar">
             <!-- Dashboard Summary -->
             <div class="dashboard no-print" id="dashboard">
-                <div class="dash-status-container">
+                <div class="dash-status-container" style="border-bottom: 1px solid var(--border); padding-bottom: 8px;">
                     <span class="dash-item" style="flex-direction: row; align-items: center; gap: 8px;">
                         <span id="dashStatus" class="dash-status clear">CLEAR</span>
                     </span>
@@ -575,12 +577,15 @@
                         <span class="dash-value" id="clockDisplayDash">00:00:00</span>
                     </span>
                 </div>
-                <div class="dash-item">
-                    <span>ROUTE</span>
-                    <span class="dash-value" id="dashRoute">-</span>
-                </div>
-                <div class="dash-item">
-                    <span class="dash-value"><span id="dashNotamCount">0</span> NOTAM / <span id="dashVonaCount">0</span> VONA / <span id="dashTcCount">0</span> TC</span>
+                <div class="dash-row">
+                    <div class="dash-item">
+                        <span>ROUTE</span>
+                        <span class="dash-value" id="dashRoute">-</span>
+                    </div>
+                    <div class="dash-item" style="text-align: right;">
+                        <span>COUNTS</span>
+                        <span class="dash-value"><span id="dashNotamCount">0</span>N / <span id="dashVonaCount">0</span>V / <span id="dashTcCount">0</span>T</span>
+                    </div>
                 </div>
             </div>
 
