@@ -707,14 +707,31 @@
         if (appShell) {
             appShell.style.display = 'grid';
         }
-        lucide.createIcons();
+        
+        // Safely create icons
+        if (typeof lucide !== 'undefined') {
+            try {
+                lucide.createIcons();
+            } catch (e) {
+                console.warn('Lucide icons failed to load:', e);
+            }
+        }
+        
+        // Ensure map layout is correct
         if (typeof map !== 'undefined' && map) {
-            setTimeout(() => { map.invalidateSize(); }, 100);
+            setTimeout(() => { map.invalidateSize(); }, 200);
         }
     }
     
-    // Try to show app after a short delay to ensure all scripts are loaded
-    setTimeout(showApp, 500);
+    // Initialize as soon as DOM is ready or after a short safety timeout
+    if (document.readyState === 'loading') {
+        window.addEventListener('load', showApp);
+    } else {
+        showApp();
+    }
+    
+    // Safety fallback: Force show after 2 seconds regardless of load state
+    setTimeout(showApp, 2000);
 </script>
 </body>
 </html>
