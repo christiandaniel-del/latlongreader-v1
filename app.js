@@ -241,38 +241,51 @@ function updateDashboard() {
 // --- MAP INIT ---
 
 function initMap() {
+    // Check if Leaflet is available
+    if (typeof L === 'undefined') {
+        throw new Error('Leaflet.js library not loaded. Map cannot be initialized.');
+    }
+    
+    // Check if map container exists
+    const mapContainer = document.getElementById('map');
+    if (!mapContainer) {
+        throw new Error('Map container (#map) not found in DOM');
+    }
+    
     if (map) return;
-    map = L.map('map', { center: [-2.5, 118], zoom: 5, zoomControl: true, attributionControl: false });
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '© OpenStreetMap'
-    }).addTo(map);
-    Object.values(layers).forEach(l => l.addTo(map));
-    L.control.zoom({ position: 'topright' }).addTo(map);
+    
+    try {
+        map = L.map('map', { center: [-2.5, 118], zoom: 5, zoomControl: true, attributionControl: false });
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+        Object.values(layers).forEach(l => l.addTo(map));
+        L.control.zoom({ position: 'topright' }).addTo(map);
 
-    map.on('mousemove', (e) => {
-        const { lat, lng } = e.latlng;
-        const latStr = Math.abs(lat).toFixed(4) + (lat>=0?'N':'S');
-        const lngStr = Math.abs(lng).toFixed(4) + (lng>=0?'E':'W');
-        document.getElementById('coordsDisplay').textContent = `${latStr} ${lngStr}`;
+        map.on('mousemove', (e) => {
+            const { lat, lng } = e.latlng;
+            const latStr = Math.abs(lat).toFixed(4) + (lat>=0?'N':'S');
+            const lngStr = Math.abs(lng).toFixed(4) + (lng>=0?'E':'W');
+            document.getElementById('coordsDisplay').textContent = `${latStr} ${lngStr}`;
 
-        if (isRulerActive && rulerPoints.length > 0) {
-            updateRuler(e.latlng);
-        }
-    });
-    map.on('click', (e) => {
-        // Normal click behavior (if any)
-    });
+            if (isRulerActive && rulerPoints.length > 0) {
+                updateRuler(e.latlng);
+            }
+        });
+        map.on('click', (e) => {
+            // Normal click behavior (if any)
+        });
 
-    // Ruler logic moved to its own handlers for better isolation
-    rulerLayer = L.layerGroup().addTo(map);
+        // Ruler logic moved to its own handlers for better isolation
+        rulerLayer = L.layerGroup().addTo(map);
 
-    setInterval(() => {
-        const now = new Date();
-        const timeStr = now.toISOString().substr(11,8);
-        const el1 = document.getElementById('clockDisplay');
-        const el2 = document.getElementById('clockDisplayDash');
-        if (el1) el1.textContent = timeStr;
-        if (el2) el2.textContent = timeStr;
+        setInterval(() => {
+            const now = new Date();
+            const timeStr = now.toISOString().substr(11,8);
+            const el1 = document.getElementById('clockDisplay');
+            const el2 = document.getElementById('clockDisplayDash');
+            if (el1) el1.textContent = timeStr;
+            if (el2) el2.textContent = timeStr;
     }, 1000);
 
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -289,6 +302,10 @@ function initMap() {
             document.getElementById('mainInput').placeholder = placeholder[activeTab] || '';
         });
     });
+    } catch (error) {
+        console.error('[INIT] Map initialization failed:', error);
+        setStatus('Map initialization error: ' + error.message, 'error');
+    }
 }
 
 // --- PARSING FUNCTIONS ---
@@ -379,7 +396,7 @@ function parseNavtech(text) {
                 if (!parts) return null;
                 const name = parts[1];
                 const lat = (parseInt(parts[3]) + parseFloat(parts[4])/60) * (parts[2] === 'S' ? -1 : 1);
-                const lng = (parseInt(parts[6]) + parseFloat(parts[7])/60) * (match[5] === 'W' ? -1 : 1);
+                const lng = (parseInt(parts[6]) + parseFloat(parts[7])/60) * (parts[5] === 'W' ? -1 : 1);
                 return { name, lat, lng };
             }).filter(Boolean);
         }
@@ -464,7 +481,7 @@ function parseVona(text) {
     }
 
     const movMatch = text.match(/MOV\s+([NSEW]{1,3})\s*(\d{1,3})\s*KT/i);
-    const bearings = { N:0, NNE:22.5, NE:45, ENE:67.5, E:90, ESE:112.5, SE:135, SE:157.5, S:180, SSW:202.5, SW:225, WSW:247.5, W:270, WNW:292.5, NW:315, NNW:337.5 };
+    const bearings = { N:0, NNE:22.5, NE:45, ENE:67.5, E:90, ESE:112.5, SE:135, SSE:157.5, S:180, SSW:202.5, SW:225, WSW:247.5, W:270, WNW:292.5, NW:315, NNW:337.5 };
     const brng = movMatch ? bearings[movMatch[1].toUpperCase()] : null;
     const speed = movMatch ? parseInt(movMatch[2]) : 0;
 
@@ -1245,8 +1262,24 @@ function clearRuler() {
 }
 
 // --- INIT ---
-document.addEventListener('DOMContentLoaded', () => {
-    initMap();
-    document.getElementById('mainInput').placeholder = 'Paste Navtech route data (waypoints with coordinates)';
-    updateDashboard();
-});
+function initializeApp() {
+    try {
+        console.log('[INIT] Starting application initialization...');
+        initMap();
+        document.getElementById('mainInput').placeholder = 'Paste Navtech route data (waypoints with coordinates)';
+        updateDashboard();
+        setStatus('Ready', 'success');
+        console.log('[INIT] Application initialized successfully');
+    } catch (error) {
+        console.error('[INIT] Failed to initialize app:', error);
+        setStatus('Initialization error: ' + error.message, 'error');
+    }
+}
+
+// If DOM is already loaded (scripts at end of body), initialize immediately
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeApp);
+} else {
+    // DOM is already loaded
+    setTimeout(initializeApp, 100);
+}
