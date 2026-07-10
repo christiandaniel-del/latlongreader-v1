@@ -1403,6 +1403,36 @@ function toggleControlsPanel() {
     if (window.lucide) lucide.createIcons();
 }
 
+// --- PRINT REPORT ---
+function printReport() {
+    const printArea = document.getElementById('printArea');
+    if (!printArea) return;
+
+    let content = `
+        <div style="font-family: var(--font-main); color: #000; padding: 40px;">
+            <h1 style="border-bottom: 2px solid #000; padding-bottom: 10px;">SkyControl Mission Report</h1>
+            <p>Generated: ${new Date().toISOString()} UTC</p>
+            <hr>
+    `;
+
+    if (storedData.navtech.coords.length > 0) {
+        content += `<h3>Navtech Route: ${storedData.navtech.coords.length} Waypoints</h3>`;
+        content += `<ul>${storedData.navtech.coords.map(c => `<li>${c.name}: ${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}</li>`).join('')}</ul>`;
+    }
+
+    if (storedData.vona) {
+        content += `<h3>Volcanic Advisory: ${storedData.vona.volcano || 'Active Volcano'}</h3>`;
+    }
+
+    if (storedData.notam.length > 0) {
+        content += `<h3>Active NOTAMs: ${storedData.notam.length}</h3>`;
+    }
+
+    content += `</div>`;
+    printArea.innerHTML = content;
+    window.print();
+}
+
 // --- INITIALIZATION ---
 window.onload = () => {
     initMap();
