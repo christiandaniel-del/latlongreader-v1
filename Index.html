@@ -15,8 +15,8 @@
         /* --- MIDNIGHT NAVIGATOR DESIGN SYSTEM (Dark Precision) --- */
         :root {
             --bg-main: #0B1426;
-            --bg-sidebar: rgba(15, 23, 42, 0.75);
-            --bg-card: rgba(30, 41, 59, 0.5);
+            --bg-sidebar: rgba(15, 23, 42, 0.2);
+            --bg-card: rgba(30, 41, 59, 0.1);
             --primary: #0ea5e9;
             --primary-dark: #0284c7;
             --accent-vona: #f97316;
@@ -84,8 +84,8 @@
             100% { background-position: -200% 0; }
         }
 
-        /* --- FLOATING SIDEBAR --- */
-        .sidebar {
+        /* --- PANEL LAYOUT SYSTEM --- */
+        .panel-results {
             position: absolute;
             top: 24px;
             left: 24px;
@@ -93,61 +93,66 @@
             width: 420px;
             z-index: 1000;
             transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-            /* Remove background/border here, move to inner to allow toggle overlap */
-        }
-        .sidebar.collapsed {
-            transform: translateX(-480px);
-        }
-        .sidebar-inner {
-            width: 100%;
-            height: 100%;
-            background: var(--bg-sidebar);
-            backdrop-filter: blur(20px) saturate(180%);
-            border: 1px solid var(--border);
-            border-radius: 28px;
             display: flex;
             flex-direction: column;
-            padding: 28px;
-            gap: 24px;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-            overflow-y: auto;
-            scrollbar-width: none;
+            pointer-events: none;
         }
-        .sidebar-inner::-webkit-scrollbar { display: none; }
+        .panel-results.collapsed { transform: translateX(-450px); }
 
-        .sidebar-toggle {
+        .panel-controls {
             position: absolute;
-            top: 50%;
-            left: calc(100% - 10px); /* Slightly overlap to touch the border */
-            transform: translateY(-50%);
-            width: 44px;
-            height: 80px;
-            background: var(--bg-sidebar);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--border);
-            border-radius: 0 16px 16px 0;
+            bottom: 24px;
+            right: 24px;
+            width: 460px;
+            z-index: 1001;
+            transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+            pointer-events: auto;
+        }
+        .panel-controls.collapsed { transform: translateY(calc(100% - 70px)) translateX(300px) scale(0.8); opacity: 0.6; }
+
+        .panel-inner {
+            background: rgba(15, 23, 42, 0.15);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 32px;
+            padding: 28px;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 30px 60px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.05);
+            pointer-events: auto;
+            position: relative;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255,255,255,0.2) transparent;
+        }
+
+        .panel-inner::-webkit-scrollbar { width: 6px; }
+        .panel-inner::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 10px; }
+        .panel-inner::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); border-radius: 10px; }
+
+        .panel-toggle {
+            position: absolute;
+            background: var(--primary);
+            color: white;
+            width: 48px;
+            height: 48px;
+            border-radius: 16px;
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            transition: var(--transition);
-            z-index: 1001;
-            box-shadow: 10px 0 30px rgba(0,0,0,0.3);
-        }
-        .sidebar-toggle:hover {
-            background: var(--primary);
-            color: white;
+            z-index: 10000;
+            pointer-events: auto; /* CRITICAL: Ensure button is clickable */
             box-shadow: var(--shadow-glow);
+            transition: var(--transition);
+            border: 2px solid rgba(255,255,255,0.3);
         }
-        .sidebar-toggle i {
-            transition: transform 0.4s ease;
-        }
-        .sidebar.collapsed .sidebar-toggle i {
-            transform: rotate(180deg);
-        }
-        .sidebar.collapsed .sidebar-toggle {
-            transform: translateY(-50%) translateX(20px);
-        }
+        .panel-toggle:hover { transform: scale(1.1); background: var(--primary-dark); }
+        
+        .results-toggle { top: 0; right: -64px; }
+        .controls-toggle { top: -24px; left: -24px; }
 
         /* --- HEADER --- */
         .header-brand {
@@ -175,7 +180,7 @@
 
         /* --- PRECISION DASHBOARD --- */
         .dashboard {
-            background: var(--bg-card);
+            background: rgba(15, 23, 42, 0.1);
             border: 1px solid var(--border);
             border-radius: 20px;
             padding: 20px;
@@ -210,7 +215,7 @@
             grid-template-columns: repeat(4, 1fr);
             gap: 12px;
             padding: 6px;
-            background: rgba(0,0,0,0.2);
+            background: rgba(0,0,0,0.1);
             border-radius: 18px;
             border: 1px solid var(--border);
         }
@@ -383,8 +388,9 @@
         /* --- OVERLAY ELEMENTS --- */
         .map-coords {
             position: absolute;
-            bottom: 30px;
-            right: 30px;
+            top: 24px;
+            left: 50%;
+            transform: translateX(-50%);
             background: var(--bg-sidebar);
             backdrop-filter: blur(10px);
             padding: 10px 20px;
@@ -461,141 +467,131 @@
     <div id="map"></div>
     <div id="map-skeleton"><div class="skeleton-pulse"></div></div>
     
-    <div class="sidebar" id="sidebar">
-        <div class="sidebar-toggle" onclick="toggleSidebar()">
-            <i data-lucide="chevron-left"></i>
+    <!-- RESULTS PANEL (LEFT) -->
+    <div class="panel-results collapsed" id="resultsPanel">
+        <div class="panel-toggle results-toggle" onclick="toggleResultsPanel()">
+            <i data-lucide="chevron-right" id="resultsToggleIcon"></i>
         </div>
-        <div class="sidebar-inner">
+        <div class="panel-inner" id="resultsInner" style="overflow-y: auto;">
+            <!-- Content here same as before -->
+            <div id="navtechCard" class="card">
+                <div class="card-header">
+                    <span class="card-title"><i data-lucide="milestone"></i> Waypoints (<span id="navCount">0</span>)</span>
+                    <button class="btn" onclick="downloadKML('navtech')" style="padding: 6px 12px; border-radius: 8px; font-size: 10px;">KML</button>
+                </div>
+                <div class="scroll-list" id="navPoints"></div>
+                <div id="navtechIntersect" style="margin-top:12px;"></div>
+            </div>
+
+            <div id="vonaCard" class="card">
+                <div class="card-header">
+                    <span class="card-title"><i data-lucide="flame"></i> Volcanic Advisory</span>
+                    <button class="btn" onclick="downloadKML('vona')" style="padding: 6px 12px; border-radius: 8px; font-size: 10px;">KML</button>
+                </div>
+                <div id="vonaDetails"></div>
+                <div id="vonaVisibility" class="layer-toggles">
+                    <div class="toggle-item active" onclick="updateVonaFilter('OBSERVED', this)">
+                        <div class="toggle-dot" style="background: #ef4444;"></div> OBS
+                    </div>
+                    <div class="toggle-item active" onclick="updateVonaFilter('+6HR', this)">
+                        <div class="toggle-dot" style="background: #f97316;"></div> +6HR
+                    </div>
+                    <div class="toggle-item active" onclick="updateVonaFilter('+12HR', this)">
+                        <div class="toggle-dot" style="background: #fbbf24;"></div> +12HR
+                    </div>
+                    <div class="toggle-item active" onclick="updateVonaFilter('+18HR', this)">
+                        <div class="toggle-dot" style="background: #d946ef;"></div> +18HR
+                    </div>
+                </div>
+                <div id="vonaIntersect" style="margin-top:12px;"></div>
+            </div>
+
+            <div id="notamCard" class="card">
+                <div class="card-header">
+                    <span class="card-title"><i data-lucide="alert-octagon"></i> Active NOTAMs</span>
+                    <button class="btn" onclick="downloadKML('notam')" style="padding: 6px 12px; border-radius: 8px; font-size: 10px;">KML</button>
+                </div>
+                <div class="scroll-list" id="notamResults"></div>
+                <div id="notamIntersect" style="margin-top:12px;"></div>
+            </div>
+
+            <div id="tcCard" class="card">
+                <div class="card-header">
+                    <span class="card-title"><i data-lucide="wind"></i> Tropical Cyclone</span>
+                    <button class="btn" onclick="downloadKML('tc')" style="padding: 6px 12px; border-radius: 8px; font-size: 10px;">KML</button>
+                </div>
+                <div id="tcDetails"></div>
+                <div id="tcVisibility" class="layer-toggles">
+                    <div class="toggle-item active" onclick="updateTcFilter('34', this)">
+                        <div class="toggle-dot" style="background: #3b82f6;"></div> 34KT
+                    </div>
+                    <div class="toggle-item active" onclick="updateTcFilter('50', this)">
+                        <div class="toggle-dot" style="background: #fbbf24;"></div> 50KT
+                    </div>
+                    <div class="toggle-item active" onclick="updateTcFilter('64', this)">
+                        <div class="toggle-dot" style="background: #ef4444;"></div> 64KT
+                    </div>
+                    <div class="toggle-item active" onclick="updateTcTypeFilter('obs', this)">
+                        <div class="toggle-dot" style="background: #000000; border:1px solid white;"></div> OBS
+                    </div>
+                    <div class="toggle-item active" onclick="updateTcTypeFilter('fcst', this)">
+                        <div class="toggle-dot" style="background: #a855f7;"></div> FCST
+                    </div>
+                </div>
+                <div class="scroll-list" id="tcForecasts" style="margin-top:12px;"></div>
+                <div id="tcIntersect" style="margin-top:12px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CONTROL PANEL (BOTTOM RIGHT) -->
+    <div class="panel-controls" id="controlsPanel">
+        <div class="panel-toggle controls-toggle" onclick="toggleControlsPanel()">
+            <i data-lucide="chevron-down" id="controlsToggleIcon"></i>
+        </div>
+        <div class="panel-inner">
             <header class="header-brand">
-            <i data-lucide="navigation" style="color: var(--primary); width: 28px; height: 28px;"></i>
-            <h1>SkyControl</h1>
-            <span class="tag-pro">v4.0</span>
-        </header>
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <i data-lucide="navigation" style="color: var(--primary); width: 28px; height: 28px;"></i>
+                    <h1 style="font-size: 20px;">SkyControl</h1>
+                    <span class="tag-pro">v4.0</span>
+                </div>
+            </header>
 
-        <div class="dashboard" id="dashboard">
-            <div class="dash-row">
-                <span id="dashStatus" class="dash-status clear">READY</span>
-                <span class="dash-value" id="clockDisplay">00:00:00 UTC</span>
-            </div>
-            <div class="dash-item">
-                <span class="dash-label">Active Route</span>
-                <span class="dash-value" id="dashRoute" style="color: var(--accent-orange);">—</span>
-            </div>
-            <div class="dash-row">
+            <div class="dashboard" id="dashboard" style="margin-top:15px;">
+                <div class="dash-row">
+                    <span id="dashStatus" class="dash-status clear">READY</span>
+                    <span class="dash-value" id="clockDisplay">00:00:00 UTC</span>
+                </div>
                 <div class="dash-item">
-                    <span class="dash-label">Data Points</span>
-                    <span class="dash-value" id="dashCounts">0 N / 0 V / 0 T</span>
+                    <span class="dash-label">Active Route</span>
+                    <span class="dash-value" id="dashRoute" style="color: var(--accent-orange);">—</span>
                 </div>
-                <button class="btn" onclick="printReport()" style="padding: 10px; border-radius: 12px;">
-                    <i data-lucide="printer" style="width:18px; height:18px;"></i>
-                </button>
+                <div class="dash-row">
+                    <div class="dash-item">
+                        <span class="dash-label">Data Points</span>
+                        <span class="dash-value" id="dashCounts">0 N / 0 V / 0 T</span>
+                    </div>
+                    <button class="btn" onclick="printReport()" style="padding: 10px; border-radius: 12px;">
+                        <i data-lucide="printer" style="width:18px; height:18px;"></i>
+                    </button>
+                </div>
             </div>
-        </div>
 
-        <nav class="tab-nav">
-            <button class="tab-btn active" data-tab="navtech">
-                <i data-lucide="map"></i><span>ROUTE</span>
-            </button>
-            <button class="tab-btn" data-tab="vona">
-                <i data-lucide="flame"></i><span>VONA</span>
-            </button>
-            <button class="tab-btn" data-tab="notam">
-                <i data-lucide="alert-octagon"></i><span>NOTAM</span>
-            </button>
-            <button class="tab-btn" data-tab="tc">
-                <i data-lucide="wind"></i><span>CYCLONE</span>
-            </button>
-        </nav>
+            <nav class="tab-nav" style="margin: 15px 0;">
+                <button class="tab-btn active" data-tab="navtech"><i data-lucide="map"></i><span>RT</span></button>
+                <button class="tab-btn" data-tab="vona"><i data-lucide="flame"></i><span>VA</span></button>
+                <button class="tab-btn" data-tab="notam"><i data-lucide="alert-octagon"></i><span>NT</span></button>
+                <button class="tab-btn" data-tab="tc"><i data-lucide="wind"></i><span>TC</span></button>
+            </nav>
 
-        <div class="input-area">
-            <textarea id="mainInput" placeholder="Paste Navtech route data here..."></textarea>
-            <div class="btn-group">
-                <button class="btn btn-primary" onclick="handleParse()">
-                    <i data-lucide="zap"></i> PARSE
-                </button>
-                <button class="btn" onclick="analyzeAll()">
-                    <i data-lucide="radar"></i> ANALYZE
-                </button>
-                <button class="btn" onclick="loadTemplate()">
-                    <i data-lucide="file-plus"></i>
-                </button>
-            </div>
-        </div>
-
-        <!-- Result Cards -->
-        <div id="navtechCard" class="card">
-            <div class="card-header">
-                <span class="card-title"><i data-lucide="milestone"></i> Waypoints (<span id="navCount">0</span>)</span>
-                <button class="btn" onclick="downloadKML('navtech')" style="padding: 6px 12px; border-radius: 8px; font-size: 10px;">KML</button>
-            </div>
-            <div class="scroll-list" id="navPoints"></div>
-            <div id="navtechIntersect" style="margin-top:12px;"></div>
-        </div>
-
-        <div id="vonaCard" class="card">
-            <div class="card-header">
-                <span class="card-title"><i data-lucide="flame"></i> Volcanic Advisory</span>
-                <button class="btn" onclick="downloadKML('vona')" style="padding: 6px 12px; border-radius: 8px; font-size: 10px;">KML</button>
-            </div>
-            <div id="vonaDetails"></div>
-            <div id="vonaVisibility" class="layer-toggles">
-                <div class="toggle-item active" onclick="updateVonaFilter('OBSERVED', this)">
-                    <div class="toggle-dot" style="background: #ef4444;"></div> OBS
+            <div class="input-area">
+                <textarea id="mainInput" placeholder="Paste data here..." style="height: 120px;"></textarea>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="handleParse()"><i data-lucide="zap"></i> PARSE</button>
+                    <button class="btn" onclick="analyzeAll()"><i data-lucide="radar"></i> ANALYZE</button>
+                    <button class="btn" onclick="clearAll()">RESET</button>
                 </div>
-                <div class="toggle-item active" onclick="updateVonaFilter('+6HR', this)">
-                    <div class="toggle-dot" style="background: #f97316;"></div> +6HR
-                </div>
-                <div class="toggle-item active" onclick="updateVonaFilter('+12HR', this)">
-                    <div class="toggle-dot" style="background: #fbbf24;"></div> +12HR
-                </div>
-                <div class="toggle-item active" onclick="updateVonaFilter('+18HR', this)">
-                    <div class="toggle-dot" style="background: #d946ef;"></div> +18HR
-                </div>
-            </div>
-            <div id="vonaIntersect" style="margin-top:12px;"></div>
-        </div>
-
-        <div id="notamCard" class="card">
-            <div class="card-header">
-                <span class="card-title"><i data-lucide="alert-octagon"></i> Active NOTAMs</span>
-                <button class="btn" onclick="downloadKML('notam')" style="padding: 6px 12px; border-radius: 8px; font-size: 10px;">KML</button>
-            </div>
-            <div class="scroll-list" id="notamResults"></div>
-            <div id="notamIntersect" style="margin-top:12px;"></div>
-        </div>
-
-        <div id="tcCard" class="card">
-            <div class="card-header">
-                <span class="card-title"><i data-lucide="wind"></i> Tropical Cyclone</span>
-                <button class="btn" onclick="downloadKML('tc')" style="padding: 6px 12px; border-radius: 8px; font-size: 10px;">KML</button>
-            </div>
-            <div id="tcDetails"></div>
-            <div id="tcVisibility" class="layer-toggles">
-                <div class="toggle-item active" onclick="updateTcFilter('34', this)">
-                    <div class="toggle-dot" style="background: #3b82f6;"></div> 34KT
-                </div>
-                <div class="toggle-item active" onclick="updateTcFilter('50', this)">
-                    <div class="toggle-dot" style="background: #fbbf24;"></div> 50KT
-                </div>
-                <div class="toggle-item active" onclick="updateTcFilter('64', this)">
-                    <div class="toggle-dot" style="background: #ef4444;"></div> 64KT
-                </div>
-                <div class="toggle-item active" onclick="updateTcTypeFilter('obs', this)">
-                    <div class="toggle-dot" style="background: #000000; border:1px solid white;"></div> OBS
-                </div>
-                <div class="toggle-item active" onclick="updateTcTypeFilter('fcst', this)">
-                    <div class="toggle-dot" style="background: #a855f7;"></div> FCST
-                </div>
-            </div>
-            <div class="scroll-list" id="tcForecasts" style="margin-top:12px;"></div>
-            <div id="tcIntersect" style="margin-top:12px;"></div>
-        </div>
-
-            <div class="footer-actions">
-                <button class="btn" style="flex:1;" onclick="clearAll()">RESET</button>
-                <button class="btn" id="syncBtn" onclick="syncDataToCloud()">
-                    <i data-lucide="cloud-upload"></i> SYNC TO CLOUD
-                </button>
             </div>
         </div>
     </div>
@@ -620,19 +616,7 @@
 <!-- MapLibre GL JS -->
 <script src="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.js"></script>
 <!-- App Logic -->
-<?!= include('JavaScript'); ?>
-<script>
-    // Initialize Lucide Icons
-    if (typeof lucide !== 'undefined') lucide.createIcons();
-    
-    // Resize Observer for the map container
-    const mapContainer = document.getElementById('map');
-    const resizeObserver = new ResizeObserver(() => {
-        if (typeof map !== 'undefined' && map && typeof map.resize === 'function') {
-            map.resize();
-        }
-    });
-    resizeObserver.observe(mapContainer);
-</script>
+<script src="script.js"></script>
+
 </body>
 </html>
