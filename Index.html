@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SkyControl - Aviation Data Integrator</title>
+    <!-- MapLibre GL JS CSS -->
+    <link href="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.css" rel="stylesheet" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* --- MIDNIGHT NAVIGATOR DESIGN SYSTEM (Dark Precision) --- */
+        :root {
+            --bg-main: #0B1426;
+            --bg-sidebar: rgba(15, 23, 42, 0.75);
+            --bg-card: rgba(30, 41, 59, 0.5);
+            --primary: #0ea5e9;
+            --primary-dark: #0284c7;
+            --accent-vona: #f97316;
+            --accent-notam: #ef4444;
+            --accent-navtech: #22c55e;
+            --accent-tc: #8b5cf6;
+            --accent-orange: #FFAC1C;
+            
+            --text-main: #ffffff;
+            --text-muted: #cbd5e1;
+            --border: rgba(255, 255, 255, 0.1);
+            
+            --shadow-glow: 0 0 20px rgba(14, 165, 233, 0.2);
+            --font-main: 'Outfit', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: var(--font-main);
+            background: var(--bg-main);
+            color: var(--text-main);
+            height: 100vh;
+            overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .app-shell {
+            display: flex;
+            height: 100vh;
+            width: 100vw;
+            position: relative;
+        }
+
+        /* --- BACKGROUND MAP --- */
+        #map {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 1;
+            background: #010409;
+        }
+
+        /* --- LOADING SKELETON --- */
+        #map-skeleton {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 2;
+            background: var(--bg-main);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.8s ease;
+        }
+        .skeleton-pulse {
+            width: 200px;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--primary), transparent);
+            background-size: 200% 100%;
+            animation: skeleton-slide 2s infinite linear;
+        }
+        @keyframes skeleton-slide {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        /* --- FLOATING SIDEBAR --- */
+        .sidebar {
+            position: absolute;
+            top: 24px;
+            left: 24px;
+            bottom: 24px;
+            width: 420px;
+            z-index: 1000;
+            transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+            /* Remove background/border here, move to inner to allow toggle overlap */
+        }
+        .sidebar.collapsed {
+            transform: translateX(-480px);
+        }
+        .sidebar-inner {
+            width: 100%;
+            height: 100%;
+            background: var(--bg-sidebar);
+            backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid var(--border);
+            border-radius: 28px;
+            display: flex;
+            flex-direction: column;
+            padding: 28px;
+            gap: 24px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            overflow-y: auto;
+            scrollbar-width: none;
+        }
+        .sidebar-inner::-webkit-scrollbar { display: none; }
+
+        .sidebar-toggle {
+            position: absolute;
+            top: 50%;
+            left: calc(100% - 10px); /* Slightly overlap to touch the border */
+            transform: translateY(-50%);
+            width: 44px;
+            height: 80px;
+            background: var(--bg-sidebar);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border);
+            border-radius: 0 16px 16px 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: var(--transition);
+            z-index: 1001;
+            box-shadow: 10px 0 30px rgba(0,0,0,0.3);
+        }
+        .sidebar-toggle:hover {
+            background: var(--primary);
+            color: white;
+            box-shadow: var(--shadow-glow);
+        }
+        .sidebar-toggle i {
+            transition: transform 0.4s ease;
+        }
+        .sidebar.collapsed .sidebar-toggle i {
+            transform: rotate(180deg);
+        }
+        .sidebar.collapsed .sidebar-toggle {
+            transform: translateY(-50%) translateX(20px);
+        }
+
+        /* --- HEADER --- */
+        .header-brand {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        .header-brand h1 {
+            font-size: 22px;
+            font-weight: 800;
+            letter-spacing: -0.8px;
+            background: linear-gradient(135deg, #fff, var(--primary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .tag-pro {
+            background: var(--primary);
+            color: white;
+            padding: 3px 10px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 800;
+            box-shadow: var(--shadow-glow);
+        }
+
+        /* --- PRECISION DASHBOARD --- */
+        .dashboard {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .dash-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .dash-item { display: flex; flex-direction: column; gap: 6px; }
+        .dash-label { font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.5px; }
+        .dash-value { font-size: 15px; font-weight: 600; font-family: var(--font-mono); color: var(--text-main); }
+        
+        .dash-status {
+            padding: 6px 14px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 800;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border);
+        }
+        .dash-status.clear { color: var(--accent-navtech); border-color: rgba(34, 197, 94, 0.2); }
+        .dash-status.warning { color: var(--accent-orange); border-color: rgba(255, 172, 28, 0.2); }
+        .dash-status.danger { color: var(--accent-notam); border-color: rgba(239, 68, 68, 0.2); }
+
+        /* --- TAB NAVIGATION --- */
+        .tab-nav {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            padding: 6px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 18px;
+            border: 1px solid var(--border);
+        }
+        .tab-btn {
+            border: none;
+            background: transparent;
+            padding: 12px 6px;
+            border-radius: 14px;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            color: var(--text-muted);
+            transition: var(--transition);
+        }
+        .tab-btn i { width: 20px; height: 20px; }
+        .notam-block b { color: white; font-size: 13px; }
+
+        /* --- MAP POPUPS --- */
+        .maplibregl-popup-content {
+            background: rgba(15, 23, 42, 0.9) !important;
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border);
+            border-radius: 16px !important;
+            padding: 12px 16px !important;
+            color: white !important;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5) !important;
+        }
+        .maplibregl-popup-tip {
+            border-top-color: rgba(15, 23, 42, 0.9) !important;
+            border-bottom-color: rgba(15, 23, 42, 0.9) !important;
+        }
+        .maplibregl-popup-content b {
+            display: block;
+            margin-bottom: 2px;
+            font-size: 14px;
+            color: var(--primary);
+        }
+        .maplibregl-popup-content small {
+            color: var(--text-muted);
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .tab-btn span { font-size: 10px; font-weight: 700; }
+        .tab-btn.active {
+            background: var(--primary);
+            color: white;
+            box-shadow: var(--shadow-glow);
+        }
+
+        /* --- INPUT AREA --- */
+        .input-area { display: flex; flex-direction: column; gap: 16px; }
+        textarea {
+            width: 100%;
+            height: 160px;
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            background: rgba(0,0,0,0.2);
+            padding: 20px;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            color: var(--text-main);
+            outline: none;
+            resize: none;
+            transition: var(--transition);
+        }
+        textarea:focus { border-color: var(--primary); background: rgba(0,0,0,0.3); }
+
+        .btn-group { display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; }
+        .btn {
+            border: none;
+            padding: 14px;
+            border-radius: 16px;
+            font-weight: 700;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            background: rgba(255,255,255,0.05);
+            color: var(--text-main);
+            border: 1px solid var(--border);
+            transition: var(--transition);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .btn:hover { background: rgba(255,255,255,0.1); transform: translateY(-2px); }
+        .btn:active { transform: translateY(0); }
+        .btn-primary { background: var(--primary); color: white; border: none; }
+        .btn-primary:hover { background: var(--primary-dark); box-shadow: var(--shadow-glow); }
+        
+        /* --- DATA CARDS --- */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            padding: 24px;
+            display: none;
+            animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        .card-title { font-weight: 700; font-size: 13px; color: var(--text-main); display: flex; align-items: center; gap: 10px; text-transform: uppercase; letter-spacing: 1px; }
+        
+        .scroll-list { max-height: 250px; overflow-y: auto; padding-right: 8px; }
+        .scroll-list::-webkit-scrollbar { width: 4px; }
+        .scroll-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+        
+        .data-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 13px;
+            align-items: center;
+        }
+        .data-label { color: var(--text-muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .data-value { color: var(--text-main); font-weight: 500; font-family: var(--font-mono); }
+        .no-va { color: #64748b; font-style: italic; opacity: 0.8; }
+        .notam-block {
+            padding: 16px;
+            border-radius: 16px;
+            background: rgba(255,255,255,0.03);
+            margin-bottom: 12px;
+            border-left: 4px solid var(--accent-notam);
+            transition: var(--transition);
+        }
+        .notam-block:hover { background: rgba(255,255,255,0.06); transform: translateX(4px); }
+
+        .layer-toggles {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border);
+        }
+        .toggle-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255,255,255,0.03);
+            padding: 8px 12px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: var(--transition);
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            border: 1px solid transparent;
+        }
+        .toggle-item:hover { background: rgba(255,255,255,0.08); }
+        .toggle-item.active {
+            background: rgba(14, 165, 233, 0.1);
+            color: white;
+            border-color: rgba(14, 165, 233, 0.3);
+        }
+        .toggle-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+        /* --- OVERLAY ELEMENTS --- */
+        .map-coords {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            background: var(--bg-sidebar);
+            backdrop-filter: blur(10px);
+            padding: 10px 20px;
+            border-radius: 14px;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-main);
+            border: 1px solid var(--border);
+            z-index: 1000;
+        }
+
+        .ruler-tools {
+            position: absolute;
+            top: 24px;
+            right: 80px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            z-index: 1000;
+        }
+        .tool-btn {
+            width: 50px; height: 50px;
+            border-radius: 16px;
+            background: var(--bg-sidebar);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: var(--transition);
+        }
+        .tool-btn:hover { background: rgba(255,255,255,0.1); }
+        .tool-btn.active { color: var(--primary); border-color: var(--primary); box-shadow: var(--shadow-glow); }
+
+        /* --- CLOUD SYNC FOOTER --- */
+        .footer-actions {
+            margin-top: auto;
+            display: flex;
+            gap: 12px;
+        }
+        #syncBtn {
+            flex: 1;
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            border-radius: 18px;
+            border: none;
+        }
+
+        /* --- PRINT AREA --- */
+        #printArea { display: none; }
+        @media print {
+            .sidebar, .map-coords, .ruler-tools { display: none !important; }
+            #map { width: 100% !important; height: 500px !important; position: static !important; }
+            #printArea { display: block !important; padding: 40px; }
+        }
+
+        /* MapLibre Custom Markers */
+        .pulse-marker {
+            width: 14px; height: 14px; border-radius: 50%;
+            background: var(--accent-vona); border: 2px solid white;
+            box-shadow: 0 0 15px var(--accent-vona);
+            animation: pulse-ring 1.5s infinite;
+        }
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); opacity: 1; }
+            70% { transform: scale(1.4); opacity: 0; }
+            100% { transform: scale(0.95); opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="app-shell" id="appShell">
+    <div id="map"></div>
+    <div id="map-skeleton"><div class="skeleton-pulse"></div></div>
+    
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-toggle" onclick="toggleSidebar()">
+            <i data-lucide="chevron-left"></i>
+        </div>
+        <div class="sidebar-inner">
+            <header class="header-brand">
+            <i data-lucide="navigation" style="color: var(--primary); width: 28px; height: 28px;"></i>
+            <h1>SkyControl</h1>
+            <span class="tag-pro">v4.0</span>
+        </header>
+
+        <div class="dashboard" id="dashboard">
+            <div class="dash-row">
+                <span id="dashStatus" class="dash-status clear">READY</span>
+                <span class="dash-value" id="clockDisplay">00:00:00 UTC</span>
+            </div>
+            <div class="dash-item">
+                <span class="dash-label">Active Route</span>
+                <span class="dash-value" id="dashRoute" style="color: var(--accent-orange);">—</span>
+            </div>
+            <div class="dash-row">
+                <div class="dash-item">
+                    <span class="dash-label">Data Points</span>
+                    <span class="dash-value" id="dashCounts">0 N / 0 V / 0 T</span>
+                </div>
+                <button class="btn" onclick="printReport()" style="padding: 10px; border-radius: 12px;">
+                    <i data-lucide="printer" style="width:18px; height:18px;"></i>
+                </button>
+            </div>
+        </div>
+
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="navtech">
+                <i data-lucide="map"></i><span>ROUTE</span>
+            </button>
+            <button class="tab-btn" data-tab="vona">
+                <i data-lucide="flame"></i><span>VONA</span>
+            </button>
+            <button class="tab-btn" data-tab="notam">
+                <i data-lucide="alert-octagon"></i><span>NOTAM</span>
+            </button>
+            <button class="tab-btn" data-tab="tc">
+                <i data-lucide="wind"></i><span>CYCLONE</span>
+            </button>
+        </nav>
+
+        <div class="input-area">
+            <textarea id="mainInput" placeholder="Paste Navtech route data here..."></textarea>
+            <div class="btn-group">
+                <button class="btn btn-primary" onclick="handleParse()">
+                    <i data-lucide="zap"></i> PARSE
+                </button>
+                <button class="btn" onclick="analyzeAll()">
+                    <i data-lucide="radar"></i> ANALYZE
+                </button>
+                <button class="btn" onclick="loadTemplate()">
+                    <i data-lucide="file-plus"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Result Cards -->
+        <div id="navtechCard" class="card">
+            <div class="card-header">
+                <span class="card-title"><i data-lucide="milestone"></i> Waypoints (<span id="navCount">0</span>)</span>
+                <button class="btn" onclick="downloadKML('navtech')" style="padding: 6px 12px; border-radius: 8px; font-size: 10px;">KML</button>
+            </div>
+            <div class="scroll-list" id="navPoints"></div>
+            <div id="navtechIntersect" style="margin-top:12px;"></div>
+        </div>
+
+        <div id="vonaCard" class="card">
+            <div class="card-header">
+                <span class="card-title"><i data-lucide="flame"></i> Volcanic Advisory</span>
+                <button class="btn" onclick="downloadKML('vona')" style="padding: 6px 12px; border-radius: 8px; font-size: 10px;">KML</button>
+            </div>
+            <div id="vonaDetails"></div>
+            <div id="vonaVisibility" class="layer-toggles">
+                <div class="toggle-item active" onclick="updateVonaFilter('OBSERVED', this)">
+                    <div class="toggle-dot" style="background: #ef4444;"></div> OBS
+                </div>
+                <div class="toggle-item active" onclick="updateVonaFilter('+6HR', this)">
+                    <div class="toggle-dot" style="background: #f97316;"></div> +6HR
+                </div>
+                <div class="toggle-item active" onclick="updateVonaFilter('+12HR', this)">
+                    <div class="toggle-dot" style="background: #fbbf24;"></div> +12HR
+                </div>
+                <div class="toggle-item active" onclick="updateVonaFilter('+18HR', this)">
+                    <div class="toggle-dot" style="background: #d946ef;"></div> +18HR
+                </div>
+            </div>
+            <div id="vonaIntersect" style="margin-top:12px;"></div>
+        </div>
+
+        <div id="notamCard" class="card">
+            <div class="card-header">
+                <span class="card-title"><i data-lucide="alert-octagon"></i> Active NOTAMs</span>
+                <button class="btn" onclick="downloadKML('notam')" style="padding: 6px 12px; border-radius: 8px; font-size: 10px;">KML</button>
+            </div>
+            <div class="scroll-list" id="notamResults"></div>
+            <div id="notamIntersect" style="margin-top:12px;"></div>
+        </div>
+
+        <div id="tcCard" class="card">
+            <div class="card-header">
+                <span class="card-title"><i data-lucide="wind"></i> Tropical Cyclone</span>
+                <button class="btn" onclick="downloadKML('tc')" style="padding: 6px 12px; border-radius: 8px; font-size: 10px;">KML</button>
+            </div>
+            <div id="tcDetails"></div>
+            <div id="tcVisibility" class="layer-toggles">
+                <div class="toggle-item active" onclick="updateTcFilter('34', this)">
+                    <div class="toggle-dot" style="background: #3b82f6;"></div> 34KT
+                </div>
+                <div class="toggle-item active" onclick="updateTcFilter('50', this)">
+                    <div class="toggle-dot" style="background: #fbbf24;"></div> 50KT
+                </div>
+                <div class="toggle-item active" onclick="updateTcFilter('64', this)">
+                    <div class="toggle-dot" style="background: #ef4444;"></div> 64KT
+                </div>
+                <div class="toggle-item active" onclick="updateTcTypeFilter('obs', this)">
+                    <div class="toggle-dot" style="background: #000000; border:1px solid white;"></div> OBS
+                </div>
+                <div class="toggle-item active" onclick="updateTcTypeFilter('fcst', this)">
+                    <div class="toggle-dot" style="background: #a855f7;"></div> FCST
+                </div>
+            </div>
+            <div class="scroll-list" id="tcForecasts" style="margin-top:12px;"></div>
+            <div id="tcIntersect" style="margin-top:12px;"></div>
+        </div>
+
+            <div class="footer-actions">
+                <button class="btn" style="flex:1;" onclick="clearAll()">RESET</button>
+                <button class="btn" id="syncBtn" onclick="syncDataToCloud()">
+                    <i data-lucide="cloud-upload"></i> SYNC TO CLOUD
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="ruler-tools">
+        <button id="rulerBtn" class="tool-btn" onclick="toggleRuler()" title="Distance Measure">
+            <i data-lucide="ruler"></i>
+        </button>
+        <button class="tool-btn" onclick="fitBoundsAll()" title="Recenter Map">
+            <i data-lucide="maximize"></i>
+        </button>
+        <button id="rulerClearBtn" class="tool-btn" style="display:none;" onclick="clearRuler()">
+            <i data-lucide="trash-2"></i>
+        </button>
+    </div>
+
+    <div class="map-coords" id="coordsDisplay">00.0000N 000.0000E</div>
+</div>
+
+<div id="printArea"></div>
+
+<!-- MapLibre GL JS -->
+<script src="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.js"></script>
+<!-- App Logic -->
+<?!= include('JavaScript'); ?>
+<script>
+    // Initialize Lucide Icons
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+    
+    // Resize Observer for the map container
+    const mapContainer = document.getElementById('map');
+    const resizeObserver = new ResizeObserver(() => {
+        if (typeof map !== 'undefined' && map && typeof map.resize === 'function') {
+            map.resize();
+        }
+    });
+    resizeObserver.observe(mapContainer);
+</script>
+</body>
+</html>
